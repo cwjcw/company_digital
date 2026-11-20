@@ -1,5 +1,7 @@
 import { RdOrderBomReportQueryService } from './rd-order-bom-report.query.service';
 import { createUnifiedBomMatcher, type UnifiedBomHead } from './unified-bom.matcher';
+import { TablePrintService } from '../../common/printing/table-print.service';
+import ExcelJS from 'exceljs';
 
 describe('Three-source existing report views',()=>{
  const heads:UnifiedBomHead[]=[
@@ -46,8 +48,17 @@ describe('Three-source existing report views',()=>{
   unified.read.mockResolvedValueOnce({enabled:true,match:createUnifiedBomMatcher(heads,false),syncText:'科加智能：异常',warning:'科加智能：异常'});
   const result=await list('detail');expect(result.rows[3]).toMatchObject({bomStatus:'N',currentWaitingDays:null});expect(result.syncWarning).toContain('异常');
  });
+ it('exports a real workbook with department display aliases and all matching Y/N rows',async()=>{
+  const exports=new TablePrintService({has:()=>true,get:()=>source} as never,db);
+  const buffer=await exports.exportXlsx('rd-order-bom-report',{context:{view:'detail'},columnKeys:['divisionId','itemCode','bomStatus','bomSources','sourceModifiedTimes','sourceSyncStatus'],rangeType:'FILTERED'},actor);
+  const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer as never);const sheet=workbook.worksheets[0];
+  expect(sheet.rowCount).toBe(5);expect(sheet.getCell('A2').text).toBe('部门');
+  expect(sheet.getCell('C2').text).toBe('Y');expect(sheet.getCell('C5').text).toBe('N');
+  expect(sheet.getCell('D2').text).toBe('科加智能');
+ });
  it('returns typed candidates from all authorized computed rows with current filters and stable department ids',async()=>{
   expect(await source.candidateValues({actor,context:{view:'detail'},tableSearch:'',search:'科加',limit:50,fieldKey:'bomSources',filterGroup:{logic:'AND',rules:[{field:'bomStatus',operator:'eq',value:'Y'}]}})).toEqual({options:[{value:'科加智能',label:'科加智能'}],hasMore:false});
   expect(await source.candidateValues({actor,context:{view:'divisions'},tableSearch:'',search:'',limit:50,fieldKey:'divisionId',filterGroup:null})).toEqual({options:[{value:'d',label:'部门'}],hasMore:false});
+  expect(await source.printResolvers.divisionId([{id:'row1',divisionId:'部门'}])).toEqual(new Map([['row1','部门']]));
  });
 });

@@ -8,7 +8,7 @@ describe('T+ n8n reconciliation exit validation',()=>{
  it('uses one Shanghai schedule and a sequential command without message nodes',()=>{
   expect(workflow.settings.timezone).toBe('Asia/Shanghai');
   expect(workflow.nodes.filter((n:any)=>n.type==='n8n-nodes-base.scheduleTrigger')).toHaveLength(1);
-  expect(workflow.nodes.map((n:any)=>n.type)).toEqual(['n8n-nodes-base.scheduleTrigger','n8n-nodes-base.ssh','n8n-nodes-base.code']);
+  expect(workflow.nodes.map((n:any)=>n.type)).toEqual(['n8n-nodes-base.scheduleTrigger','n8n-nodes-base.ssh','n8n-nodes-base.code','n8n-nodes-base.executeWorkflowTrigger']);
  });
  it('fails nonzero exits, incomplete success and false generation switches',()=>{
   expect(()=>run({code:1,stdout:'{}'})).toThrow('EXIT_FAILED');

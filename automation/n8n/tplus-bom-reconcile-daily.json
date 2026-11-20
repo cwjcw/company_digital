@@ -58,6 +58,19 @@
         "mode": "runOnceForAllItems",
         "jsCode": "const r=$input.first()?.json??{};\nif(Number(r.code)!==0) throw new Error('TPLUS_BOM_COMMAND_EXIT_FAILED');\nconst lines=String(r.stdout??'').split(/\\r?\\n/).map(s=>s.trim()).filter(Boolean);\nlet result;\ntry{result=JSON.parse([...lines].reverse().find(s=>s.startsWith('{'))??'');}catch{throw new Error('TPLUS_BOM_RESULT_INVALID');}\nif(result.status!=='SUCCESS'||result.mode!=='RECONCILE'||!Array.isArray(result.sources)||result.sources.length!==2)throw new Error('TPLUS_BOM_RESULT_FAILED');\nfor(const key of ['tplus-kejia','tplus-kainan']){const s=result.sources.filter(s=>s.source===key);if(s.length!==1||s[0].status!=='SUCCESS'||s[0].sourceVerified!==true||!s[0].activeGeneration||!Number.isInteger(s[0].scanned)||!Number.isInteger(s[0].valid))throw new Error('TPLUS_BOM_GENERATION_NOT_VERIFIED');}\nreturn [{json:result}];"
       }
+    },
+    {
+      "id": "tplus-replay",
+      "name": "受控手工重跑",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
     }
   ],
   "connections": {
@@ -77,6 +90,17 @@
         [
           {
             "node": "校验退出码和两个活动代次",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受控手工重跑": {
+      "main": [
+        [
+          {
+            "node": "串行对账科加和凯南",
             "type": "main",
             "index": 0
           }

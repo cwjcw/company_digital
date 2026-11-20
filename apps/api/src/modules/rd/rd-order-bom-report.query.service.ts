@@ -142,6 +142,9 @@ export class RdOrderBomReportQueryService {
       },
       exportDisplayValue: reportDateDisplay,
       printDisplayValue: reportDateDisplay,
+      // listRows already resolves the department display alias. Do not send
+      // these names back through the generic UUID-based department resolver.
+      printResolvers: { divisionId: async rows => new Map(rows.filter(row=>row.divisionId!=null).map(row=>[String(row.id),row.divisionId])) },
       listRows: query => this.listRows(query),
       candidateValues: query => this.candidateValues(query),
       printRows: query => this.listRows(query)

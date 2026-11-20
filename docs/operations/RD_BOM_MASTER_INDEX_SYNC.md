@@ -68,3 +68,5 @@ RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-bom-master-index-sync-cli.js HEALTH
 新增n8n `RdTplusBomReconcileDailyV1`每日01:20 Asia/Shanghai串行对账，仓库定义`automation/n8n/tplus-bom-reconcile-daily.json`。后置节点检查SSH退出码、CLI顶层及两来源状态、sourceVerified和活动代次；失败必须为execution error，不走成功分支。本次不新增任何企业微信、邮件或其他消息推送；异常仅显示于原报表及既有n8n运行状态。无新增cron/systemd/应用内scheduler。所有原任务保持。
 
 回滚：部署原API/Web（9fa1325）恢复原E10报表，不回滚数据、不删除迁移台账或T+快照；本次新T+工作流可单独取消发布，不影响原E10任务。源只读权限、会话advisory锁、完整成功后代次切换构成同步保护；T+只是每天对账时点状态，不承诺还原日内创建后又删除的短暂历史。
+
+T+工作流另带Execute Workflow Trigger作为受控手工重跑入口（不是第二个自动调度）。当前n8n CLI执行可用`N8N_RUNNERS_BROKER_PORT=5689 n8n execute --id=RdTplusBomReconcileDailyV1 --rawOutput`，使用独立临时代理端口，不能改常驻端口或启动第二套调度。导入/发布后，若CLI提示运行中n8n需重启，先确认无进行中execution并保留其他流程配置，再通过既有容器刷新。2026-11-20实际execution1631成功，日常计划已发布并加载。

@@ -542,5 +542,13 @@
 - 防并发：tenant/source会话advisory锁，进程退出自动释放；失败旧代次不动，可幂等重跑；无永久日期水位漏删除风险。进程中断的RUNNING审计下次同来源接管时置FAILED。
 - 失败：CLI非0、n8n后置强校验；原BOM报表显示异常/过期及最后成功日期，本次用户明确不新增业务消息推送，覆盖Skill通用消息告警建议。每天完整轻量头对账可补偿漏跑，手工同一CLI可重试。回滚仅撤新工作流及旧应用，不删镜像或源资料。
 - 原E10每日增量及其既有监测保持原样，不执行每日E10 FULL；其他所有n8n/Timer/cron原样。
-- 变更前生产盘点：19个n8n工作流，15个激活；新增定义前无T+ BOM索引专用对账入口，未把已有订单同步判作本任务。主机实际Timer/cron/常驻服务摘要保存受控本地`outputs/tplus_bom_unified_release/schedulers-before.txt`。
+- 变更前生产盘点：19个n8n工作流，14个激活；新增定义前无T+ BOM索引专用对账入口，未把已有订单同步判作本任务。主机实际Timer/cron/常驻服务摘要保存受控本地`outputs/tplus_bom_unified_release/schedulers-before.txt`。
 - 当前阶段：定义与隔离测试已完成，生产启用/最近执行证据待本轮发布后追加，不能将仓库active=true当作已上线。
+
+### RD-002生产执行证明（2026-11-20）
+
+- Migration135已严格应用；首次双来源对账均SUCCESS，独立ERP聚合与生产有效数量一致：科加22083/22095头，凯南3334/3336头。ACTIVATE后报表使用三来源；E10原代次/水位/291736张头保持不变。
+- 真实n8n工作流受控重跑execution **1631**（cli），2026-11-20 12:15:29至12:17:01 Asia/Shanghai，status=success；SSH与后置节点均完成，两个来源sourceVerified与活动generation通过检查，第二次对账成功。
+- 已发布`RdTplusBomReconcileDailyV1`并在无进行中execution窗口重启原n8n使新计划生效；每天01:20上海时间。临时CLI broker使用5689避免与常驻5679冲突，不改常驻配置、没有新增永久服务。
+- 变更前19定义/14激活，变更后20定义/15激活；19个原流程的nodes/connections/settings/active指纹逐个相同，原E10工作流保持激活。仓库本任务新增1个n8n定义，生产对应1个激活逻辑任务；本任务新增systemd Timer、cron、常驻Service、应用内scheduler均0。
+- 运行摘要及完整旧/新配置核验留在本地`outputs/tplus_bom_unified_release/n8n-verification.json`，不提交业务数据、凭据或完整执行响应。
