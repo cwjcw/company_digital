@@ -112,6 +112,7 @@ export class AbnormalCostApplicationService {
     if(!String(value.order_no??'').trim())throw new BadRequestException('请选择订单号');
     if(!String(value.major_category??'').trim())throw new BadRequestException('请选择异常大类');
     const order=costText(value.order_no,'订单号',100,true),major=costText(value.major_category,'异常大类',100,true);
+    if(order!==value.order_no)throw new BadRequestException('请选择订单号');
     const array=(raw:unknown,label:string,max:number)=>{if(!Array.isArray(raw)||!raw.length||raw.length>500||raw.some(v=>typeof v!=='string'||!v.trim()||v!==v.trim()||v.length>max)||new Set(raw).size!==raw.length)throw new BadRequestException(label);return raw as string[];};
     const items=array(value.item_codes,'请至少选择一个品号',128),secondary=array(value.sub_categories,'请至少选择一个异常二级分类',100);
     // Same lock order as publication and category changes; membership cannot change mid-command.

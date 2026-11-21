@@ -271,7 +271,7 @@ const socket=process.env.KDOS_ABNORMAL_TEST_SOCKET;
   it('enforces virtual exception, wrong order/item, quantity integer and category membership with complete transaction rollback',async()=>{
     const before=async()=>({requests:(await db.query('SELECT count(*)::int n FROM abnormal_responsibility_requests'))[0].n,children:(await db.query('SELECT count(*)::int n FROM abnormal_responsibility_judgments'))[0].n,outbox:(await db.query('SELECT count(*)::int n FROM notification_outbox'))[0].n});
     const initial=await before();
-    for(const patch of [{order_no:'虚拟订单',item_codes:['虚拟品号']},{order_no:'SYN-ORDER',item_codes:['OTHER']},{abnormal_quantity:-1},{abnormal_quantity:1.5},{abnormal_quantity:'1'},{sub_categories:['回收粉','内部原因']}])await expect(app.createRequest({...body(),...patch},randomUUID(),actor)).rejects.toThrow();
+    for(const patch of [{order_no:' SYN-ORDER '},{order_no:'虚拟订单',item_codes:['虚拟品号']},{order_no:'SYN-ORDER',item_codes:['OTHER']},{abnormal_quantity:-1},{abnormal_quantity:1.5},{abnormal_quantity:'1'},{sub_categories:['回收粉','内部原因']}])await expect(app.createRequest({...body(),...patch},randomUUID(),actor)).rejects.toThrow();
     expect(await before()).toEqual(initial);
     const virtual=await app.createRequest({...body(),major_category:'粉末报废',sub_categories:['回收粉'],order_no:'虚拟订单',item_codes:['虚拟品号']},'virtual-valid',actor);expect((await app.detail('abnormal-responsibility-requests',virtual.id,actor)).item_codes).toEqual(['虚拟品号']);
     await expect(app.createRequest({...body(),sub_categories:['回收粉','呆滞废粉'],order_no:'虚拟订单',item_codes:['虚拟品号']},'mixed',actor)).rejects.toThrow('仅‘粉末报废-回收粉’');

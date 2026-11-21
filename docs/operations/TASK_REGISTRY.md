@@ -573,3 +573,5 @@
 - 超时：每来源两次180秒，整同步1200秒，n8n1500秒。02:30与现有PLM半小时任务时间相同但数据/锁/调用独立，原任务不迁移；读取成本及实际耗时见证据。
 - 回滚：仅停用本任务、前向修复优先，保留表和历史，新旧应用兼容风险见 `docs/operations/ABNORMAL_COST_ORDERS.md`。
 - 责任归属：流程审批/异常费用维护者。发布前实际盘点21个n8n定义/16个激活，无本任务；最终激活、执行ID、成功时间及原工作流一致性在 `outputs/abnormal_cost_orders_release/` 最终报告登记。部署前未宣称已启用。
+
+- 2026-11-21运行验收：受控CLI execution `1689` 成功，07:58:57–08:00:37（上海时间）；三来源完整读取及严格结果节点通过。工作流已发布激活，n8n healthz及启动注册日志已核查。盘点从21定义/16激活变为22/17，原21项nodes/connections/settings/active逐一一致。新增仓库定义1、新增启用n8n逻辑任务1；新增systemd Timer/cron/常驻服务/应用调度均0。此执行为手工验收，未冒充自然定时触发；下一周期2026-11-22 02:30。完整证据见受限outputs/abnormal_cost_orders_release/n8n-verification.json。
