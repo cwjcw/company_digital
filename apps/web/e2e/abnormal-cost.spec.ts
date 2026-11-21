@@ -56,12 +56,13 @@ test('request form adapts its columns to the modal content width and keeps its a
   await page.goto('/workflow/abnormal-cost/requests');await page.getByRole('button',{name:/新增/}).click();
   const dialog=page.getByRole('dialog',{name:'新增',exact:true}),grid=dialog.locator('.abnormal-request-info-grid'),attachments=dialog.locator('.abnormal-request-attachment-grid');
   await expect(dialog.locator('input[readonly]').first()).toHaveValue('提交后自动生成');
+  const assertActionsInViewport=async()=>{const rect=await dialog.locator('.ant-modal-footer').boundingBox();expect(rect).not.toBeNull();expect(rect!.y).toBeGreaterThanOrEqual(0);expect(rect!.y+rect!.height).toBeLessThanOrEqual(page.viewportSize()!.height-8);};
   const columns=async(locator:typeof grid)=>locator.evaluate(el=>getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
-  await expect.poll(()=>columns(grid)).toBe(4);await expect.poll(()=>columns(attachments)).toBe(2);
+  await expect.poll(()=>columns(grid)).toBe(4);await expect.poll(()=>columns(attachments)).toBe(2);await assertActionsInViewport();
   await expect(dialog.locator('.abnormal-request-description')).toHaveCSS('grid-column-end','-1');
   await expect(dialog.locator('.ant-modal-header')).toBeVisible();await expect(dialog.locator('.ant-modal-footer')).toBeVisible();
-  await page.setViewportSize({width:900,height:800});await expect.poll(()=>columns(grid)).toBe(2);await expect.poll(()=>columns(attachments)).toBe(2);
-  await page.setViewportSize({width:640,height:700});await expect.poll(()=>columns(grid)).toBe(1);await expect.poll(()=>columns(attachments)).toBe(1);
+  await page.setViewportSize({width:900,height:800});await expect.poll(()=>columns(grid)).toBe(2);await expect.poll(()=>columns(attachments)).toBe(2);await assertActionsInViewport();
+  await page.setViewportSize({width:640,height:700});await expect.poll(()=>columns(grid)).toBe(1);await expect.poll(()=>columns(attachments)).toBe(1);await assertActionsInViewport();
   await expect(dialog.getByRole('button',{name:/^提\s*交$/})).toBeVisible();
 });
 
