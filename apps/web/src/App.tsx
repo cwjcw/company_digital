@@ -288,18 +288,20 @@ function Shell({ logout }: { logout: () => void }) {
         { key: "/hr/employee-relations/departure-check", icon: <TeamOutlined />, label: "离职人员检查" }
       ] }
     ] }],
-    workflow: [{ key: "workflow-root", label: "流程审批", children: [
-      { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
-      { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" },
+    workflow: [
+      { key: "workflow-root", label: "流程审批", children: [
+        { key: "/development-requests", icon: <BulbOutlined />, label: "需求提报与审批" },
+        { key: "/workflow-settings", icon: <SettingOutlined />, label: "审批流程配置" }
+      ] },
       { key: 'workflow-abnormal', label: '异常费用', icon: <FolderOpenOutlined/>, children: [
         { key: 'workflow-abnormal-base',label:'基础资料',icon:<FolderOpenOutlined/>,children:[
-          ...([['abnormal-categories','categories','异常类别'],['incident-severity-levels','severities','事故级别'],['abnormal-expense-categories','expense-categories','异常费用分类']] as const).filter(([code])=>hasSessionResourcePermission(user,code,'read')||hasSessionResourcePermission(user,code,'create')).map(([,kind,label])=>({key:`/workflow/abnormal-cost/${kind}`,label,icon:<DatabaseOutlined/>}))
+          ...([['abnormal-categories','categories','异常类别'],['incident-severity-levels','severities','事故级别'],['abnormal-expense-categories','expense-categories','异常费用分类']] as const).filter(([code])=>hasSessionResourcePermission(user,code,'read')||hasSessionResourcePermission(user,code,'create')).map(([,kind,label])=>({key:`/workflow/abnormal-cost/${kind}`,label,icon:<DatabaseOutlined/>})),
+          ...(hasSessionResourcePermission(user,'abnormal-cost-orders','read')?[{key:'/workflow/abnormal-cost/orders',label:'订单表',icon:<DatabaseOutlined/>}]:[])
         ] },
         ...(hasSessionResourcePermission(user,'abnormal-responsibility-requests','read')||hasSessionResourcePermission(user,'abnormal-responsibility-requests','create')?[{key:'/workflow/abnormal-cost/requests',label:'发起异常责任判定',icon:<FileExcelOutlined/>}]:[]),
-        ...(hasSessionResourcePermission(user,'abnormal-cost-orders','read')?[{key:'/workflow/abnormal-cost/orders',label:'订单表',icon:<DatabaseOutlined/>}]:[]),
         ...(abnormalJudgmentMenu?[{...abnormalJudgmentMenu,icon:<AuditOutlined/>}]:[])
       ] }
-    ] }],
+    ],
     rd: [{ key: "rd-root", label: "研发中心", children: [
       { key: "/rd/items", icon: <DatabaseOutlined />, label: "物料数据" },
       ...(canReadRdOrderBom ? [{ key: "/rd/bom-report", icon: <ReadOutlined />, label: "BOM报表" }] : []),
