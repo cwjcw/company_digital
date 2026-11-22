@@ -151,7 +151,8 @@ export class AbnormalCostApplicationService {
       const changed=Object.fromEntries(Object.entries(input).filter(([k,v])=>JSON.stringify(v)!==JSON.stringify(old[k])&&!(k==='abnormal_quantity'&&String(v)===String(old[k]))));
       if(protectedChild&&Object.keys(changed).some(k=>k!=='other_attachments'))throw new ConflictException('已有已开始或已完成责任判定，不能修改判责基础信息');
       const values=protectedChild?{other_attachments:await this.attachmentIds(m,input.other_attachments??old.other_attachments,'OTHER',actor,old.other_attachments)}:await this.requestValues(m,input,actor,old),result=await this.persist(m,REQUEST,id,values,actor);
-      if(hasChildren)await this.syncRequestJudgments(m,result,children,actor);
+      const childrenChanged=hasChildren?await this.syncRequestJudgments(m,result,children,actor):false;
+      if(Object.keys(changed).length||childrenChanged)await this.enqueuePendingRequestUpdate(m,result,actor);
       await this.assertTargetScope(m,REQUEST,id,'update',actor);await this.audit(m,actor,REQUEST,id,'abnormal.request.updated',old,result);return {id,version:result.version};
     };
     const command=(m:EntityManager)=>hasChildren?this.idempotent(m,actor,key,body,()=>work(m)):work(m);
@@ -165,31 +166,33 @@ export class AbnormalCostApplicationService {
     const ids=submitted.filter(row=>row?.id).map(row=>String(row.id));
     if(new Set(ids).size!==ids.length)throw new BadRequestException('责任判定记录重复');
     if(ids.some(childId=>!visibleById.has(childId)))throw new NotFoundException('责任判定记录不存在或无权操作');
-    const retained=new Set(ids);
+    const retained=new Set(ids);let changedAny=false;
     const configKeys=['category_id','judgment_department_id','judge_user_id','expense_bearing_ratio'];
     for(const row of submitted){
       if(!row||typeof row!=='object'||Array.isArray(row))throw new BadRequestException('责任判定记录格式无效');
       const unexpected=Object.keys(row).filter(k=>!['id','version',...configKeys].includes(k));if(unexpected.length)throw new BadRequestException(`发起阶段不能修改字段：${unexpected[0]}`);
-      if(!row.id){if(row.version!=null)throw new BadRequestException('新增责任判定记录不能指定版本');await this.createJudgmentIn(m,parent,row,actor);continue;}
+      if(!row.id){if(row.version!=null)throw new BadRequestException('新增责任判定记录不能指定版本');await this.createJudgmentIn(m,parent,row,actor,false);changedAny=true;continue;}
       const current=visibleById.get(String(row.id))!;
       const changed:CostRow={};for(const field of configKeys)if(row[field]!==undefined&&String(row[field]??'')!==String(current[field]??''))changed[field]=row[field];
       if(!Object.keys(changed).length)continue;
+      changedAny=true;
       if(row.version==null)throw new BadRequestException('请提供责任判定记录版本');
       for(const field of Object.keys(changed))costWriteFields(actor,JUDGMENT,{[field]:changed[field]},false);
       const old=await this.locked(m,JUDGMENT,current.id,'update',actor,row.version);
       if(old.judgment_status!=='PENDING'||!this.isPristineJudgment(old))throw new ConflictException(`责任判定 ${old.judgment_no} 已开始或已完成，不能修改配置`);
       const config=await this.judgmentConfig(m,{...old,...changed},actor,old),next=await this.persist(m,JUDGMENT,old.id,config,actor);
       await this.assertTargetScope(m,JUDGMENT,old.id,'update',actor);await this.audit(m,actor,JUDGMENT,old.id,'abnormal.judgment.updated',old,next);
-      if(config.judge_user_id!==old.judge_user_id)await this.enqueue(m,next,actor);
     }
     for(const old of visible){
       if(retained.has(old.id))continue;
       const current=await this.locked(m,JUDGMENT,old.id,'delete',actor,old.version);
       if(current.judgment_status!=='PENDING'||!this.isPristineJudgment(current))throw new ConflictException(`责任判定 ${current.judgment_no} 已开始或已完成，不能移除`);
       await this.softDelete(m,JUDGMENT,current.id,actor);await this.audit(m,actor,JUDGMENT,current.id,'abnormal.judgment.deleted',current,null);
+      changedAny=true;
     }
     const [{count}]=await m.query('SELECT count(*)::int count FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL',[actor.tenantId,parent.id]);
     if(count<1)throw new ConflictException('异常单至少保留一条责任判定记录');
+    return changedAny;
   }
   private isPristineJudgment(row:CostRow){
     const allocations=Array.isArray(row.responsibility_allocations)?row.responsibility_allocations:[];
@@ -200,7 +203,7 @@ export class AbnormalCostApplicationService {
     const category=costUuid(input.category_id,'异常类别');const [row]=await m.query('SELECT id FROM abnormal_categories WHERE tenant_id=$1 AND id=$2::uuid AND deleted_at IS NULL FOR SHARE',[actor.tenantId,category]);if(!row)throw new BadRequestException('异常类别无效');
     return {category_id:category,judgment_department_id:old&&input.judgment_department_id===old.judgment_department_id?old.judgment_department_id:await this.department(m,input.judgment_department_id),judge_user_id:old&&input.judge_user_id===old.judge_user_id?old.judge_user_id:await this.activeUser(m,input.judge_user_id,actor,'判定人'),expense_bearing_ratio:input.expense_bearing_ratio==null||input.expense_bearing_ratio===''?null:Number(costDecimal(input.expense_bearing_ratio,'承担费用比例',0,'100'))};
   }
-  private async createJudgmentIn(m:EntityManager,parent:CostRow,input:CostRow,actor:AbnormalActor){
+  private async createJudgmentIn(m:EntityManager,parent:CostRow,input:CostRow,actor:AbnormalActor,notify=true){
     costAssert(actor,JUDGMENT,'create');costWriteFields(actor,JUDGMENT,input,true);
     if(Object.keys(input).some(k=>!['category_id','judgment_department_id','judge_user_id','expense_bearing_ratio','responsibility_reason'].includes(k)))throw new BadRequestException('发起阶段仅配置类别、判定部门、判定人及说明');
     const values=await this.judgmentConfig(m,input,actor);
@@ -209,16 +212,20 @@ export class AbnormalCostApplicationService {
     if(!sequence)throw new ConflictException('该异常单的两位子单编号已耗尽');
     const row=await this.persist(m,JUDGMENT,null,{...values,request_id:parent.id,judgment_no:`${parent.abnormal_no}${String(sequence).padStart(2,'0')}`,responsibility_reason:costText(input.responsibility_reason,'责任划分理由')},actor);
     await this.assertTargetScope(m,JUDGMENT,row.id,'create',actor);
-    await this.audit(m,actor,JUDGMENT,row.id,'abnormal.judgment.created',null,row);await this.enqueue(m,row,actor);return {id:row.id,judgment_no:row.judgment_no,version:row.version};
+    await this.audit(m,actor,JUDGMENT,row.id,'abnormal.judgment.created',null,row);if(notify)await this.enqueue(m,row,actor);return {id:row.id,judgment_no:row.judgment_no,version:row.version};
   }
   async addJudgment(requestId:string,input:CostRow,key:unknown,actor:AbnormalActor,manager?:EntityManager){const work=(m:EntityManager)=>this.idempotent(m,actor,key,{requestId,input},async()=>{
     const parent=await this.locked(m,REQUEST,requestId,'update',actor);if(!costField(actor,REQUEST,'responsibility_judgments','update'))throw new ForbiddenException('无责任划分关联编辑权限');
     const result=await this.createJudgmentIn(m,parent,input,actor);await m.query('UPDATE abnormal_responsibility_requests SET version=version+1,updated_at=now(),updated_by=$3::text WHERE tenant_id=$1 AND id=$2::uuid',[actor.tenantId,requestId,actor.userId]);return result;
   });return manager?work(manager):this.transaction(actor,work);}
-  private async enqueue(m:EntityManager,judgment:CostRow,actor:AbnormalActor){
+  private async enqueuePendingRequestUpdate(m:EntityManager,parent:CostRow,actor:AbnormalActor){
+    const pending:CostRow[]=await m.query("SELECT * FROM abnormal_responsibility_judgments WHERE tenant_id=$1 AND request_id=$2::uuid AND deleted_at IS NULL AND judgment_status='PENDING' ORDER BY judgment_no",[actor.tenantId,parent.id]);
+    for(const judgment of pending)await this.enqueue(m,judgment,actor,`abnormal-judge:${judgment.id}:request-v${parent.version}`);
+  }
+  private async enqueue(m:EntityManager,judgment:CostRow,actor:AbnormalActor,dedupKey=`abnormal-judge:${judgment.id}:v${judgment.version}`){
     const [row]=await m.query(`SELECT r.abnormal_no,r.customer_code,r.order_no,c.category_name,o.name department FROM abnormal_responsibility_requests r JOIN abnormal_categories c ON c.tenant_id=r.tenant_id AND c.id=$3::uuid JOIN organization_units o ON o.id=$4::uuid WHERE r.tenant_id=$1 AND r.id=$2::uuid`,[actor.tenantId,judgment.request_id,judgment.category_id,judgment.judgment_department_id]);
     const base=(process.env.PUBLIC_WEB_URL??process.env.WEB_BASE_URL??'https://knplan.cuixiaoyuan.cn').replace(/\/$/,'');
-    await this.notifications.enqueueEvent(actor.tenantId,{eventType:'workflow.abnormal.judgment_assigned',channel:'WECHAT_WORK',dedupKey:`abnormal-judge:${judgment.id}:v${judgment.version}`,payload:{...row,judgmentId:judgment.id,judgeUserId:judgment.judge_user_id,link:`${base}/workflow/abnormal-cost/judgments/${judgment.id}`},createdBy:actor.userId},m);
+    await this.notifications.enqueueEvent(actor.tenantId,{eventType:'workflow.abnormal.judgment_assigned',channel:'WECHAT_WORK',dedupKey,payload:{...row,judgmentId:judgment.id,judgeUserId:judgment.judge_user_id,link:`${base}/workflow/abnormal-cost/judgments/${judgment.id}`},createdBy:actor.userId},m);
   }
   async updateJudgment(id:string,body:CostRow,actor:AbnormalActor,manager?:EntityManager){
     const {expectedVersion,complete=false,...input}=body;if(expectedVersion==null)throw new BadRequestException('请提供记录版本');if(typeof complete!=='boolean')throw new BadRequestException('完成标记无效');if(complete&&(!costField(actor,JUDGMENT,'responsibility_allocations','update')||!costField(actor,JUDGMENT,'responsibility_allocations','read')))throw new ForbiddenException('没有责任划分提交权限');
@@ -251,7 +258,12 @@ export class AbnormalCostApplicationService {
       const evidence=await this.attachmentIds(m,input.judgment_evidence??old.judgment_evidence,'EVIDENCE',actor,old.judgment_evidence);
       const result=await this.persist(m,JUDGMENT,id,{...config,responsibility_allocations:allocations,responsibility_reason:costText(Object.hasOwn(input,'responsibility_reason')?input.responsibility_reason:old.responsibility_reason,'责任划分理由'),judgment_evidence:evidence,judgment_status:complete?'COMPLETED':old.judgment_status},actor);
       await this.assertTargetScope(m,JUDGMENT,id,'update',actor);await this.audit(m,actor,JUDGMENT,id,'abnormal.judgment.updated',old,result);
-      if(config.judge_user_id!==old.judge_user_id)await this.enqueue(m,result,actor);return {id,version:result.version,judgment_status:result.judgment_status};
+      const changed=Object.keys(config).some(key=>String(result[key]??'')!==String(old[key]??''))
+        ||JSON.stringify(result.responsibility_allocations)!==JSON.stringify(old.responsibility_allocations)
+        ||String(result.responsibility_reason??'')!==String(old.responsibility_reason??'')
+        ||JSON.stringify(result.judgment_evidence)!==JSON.stringify(old.judgment_evidence)
+        ||result.judgment_status!==old.judgment_status;
+      if(changed&&result.judgment_status==='PENDING')await this.enqueue(m,result,actor);return {id,version:result.version,judgment_status:result.judgment_status};
     };return manager?work(manager):this.transaction(actor,work);
   }
   async remove(code:AbnormalCostResource,id:string,version:unknown,actor:AbnormalActor){
