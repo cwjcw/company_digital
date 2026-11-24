@@ -427,7 +427,7 @@ export class MasterPlanSyncService {
     let pages = 0, scanned = 0, restored = 0, generated = 0, passComplete = false;
     while (pages < maxPages && !passComplete) {
       const result = await this.runInternal(tenantId, 'base-to-weekly', 'RECONCILIATION', MASTER_PLAN_SYSTEM_USER_ID,
-        'KDOS历史计划自动恢复', `mps-legacy-recovery:${batchId}:${pages}`);
+        'KDOS历史计划自动恢复', `mps-legacy-recovery:${batchId}:${pages}`, { basePlanIds: [] });
       pages++;
       scanned += Number(result.metrics?.legacy_recovery_scanned ?? 0);
       restored += Number(result.metrics?.legacy_lifecycle_restored ?? 0);
@@ -474,9 +474,14 @@ export class MasterPlanSyncService {
         executionScope&&'allocation' in executionScope?executionScope.allocation:null),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction, monthlyPlans, trustedInternalService),
       "base-to-weekly": async () => {
-        const recovered = trustedInternalService && userId === MASTER_PLAN_SYSTEM_USER_ID && transaction
-          ? await this.recoverVerifiedLegacyPage(transaction, tenantId) : { restored: 0, scanned: 0, passComplete: false };
-        const outcome = await this.baseToWeekly(tenantId, userId, updatedBy, transaction, executionScope&&'basePlanIds' in executionScope?executionScope.basePlanIds:null);
+        const operatorRecoveryBatch = Boolean(executionScope && 'basePlanIds' in executionScope && executionScope.basePlanIds.length === 0);
+        const recover = trustedInternalService && userId === MASTER_PLAN_SYSTEM_USER_ID && transaction
+          && (!executionScope || operatorRecoveryBatch);
+        const recovered = recover ? await this.recoverVerifiedLegacyPage(transaction, tenantId)
+          : { restored: 0, scanned: 0, passComplete: false, basePlanIds: [] as string[] };
+        const selectedIds = operatorRecoveryBatch ? recovered.basePlanIds
+          : executionScope && 'basePlanIds' in executionScope ? executionScope.basePlanIds : null;
+        const outcome = await this.baseToWeekly(tenantId, userId, updatedBy, transaction, selectedIds);
         return { ...outcome, count: outcome.count + recovered.restored,
           metrics: { ...outcome.metrics, legacy_recovery_scanned: recovered.scanned, legacy_lifecycle_restored: recovered.restored,
             legacy_recovery_pass_complete: recovered.passComplete ? 1 : 0 } };
@@ -499,7 +504,7 @@ export class MasterPlanSyncService {
     await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
     await manager.query(`INSERT INTO mps_consistency_checkpoints(tenant_id) VALUES($1) ON CONFLICT(tenant_id) DO NOTHING`, [tenantId]);
     const [checkpoint] = await manager.query(`SELECT metrics FROM mps_consistency_checkpoints WHERE tenant_id=$1 FOR UPDATE`, [tenantId]);
-    if (!checkpoint) return { scanned: 0, restored: 0, passComplete: true };
+    if (!checkpoint) return { scanned: 0, restored: 0, passComplete: true, basePlanIds: [] as string[] };
     const cursor = String(checkpoint.metrics?.legacyRecoveryBaseCursor ?? "00000000-0000-0000-0000-000000000000");
     let rows = await manager.query(`SELECT b.id,b.order_number,b.item_code,b.division_id,b.customer_code,b.monthly_plan_id,m.id AS matched_monthly_id
       FROM mps_base_plans b JOIN mps_monthly_plans m ON m.tenant_id=b.tenant_id AND
@@ -520,29 +525,36 @@ export class MasterPlanSyncService {
         ORDER BY b.id LIMIT $2`, [tenantId, limit]);
     }
     let restored = 0;
+    const restoredBasePlanIds = new Set<string>();
+    const sourceCandidates: Array<Record<string, any>> = rows.length
+      ? await manager.query(`${allocationProjectionCandidatesSql} WHERE existing_id IS NOT NULL`, [tenantId]) : [];
+    const candidatesByMonthlyId = new Map(sourceCandidates.map(candidate => [String(candidate.existing_id), candidate]));
     const keys = new Set<string>();
     for (const base of rows) {
       const key = `${base.order_number}\u0000${base.item_code}\u0000${base.division_id}`;
       if (keys.has(key)) continue;
       keys.add(key);
-      if (await this.restoreVerifiedLegacyDemand(manager, tenantId, base)) restored++;
+      const candidate = candidatesByMonthlyId.get(String(base.matched_monthly_id ?? base.monthly_plan_id));
+      if (!candidate) continue;
+      const restoredIds = await this.restoreVerifiedLegacyDemand(manager, tenantId, base, candidate);
+      if (restoredIds) {
+        restored++;
+        restoredIds.forEach((id: string) => restoredBasePlanIds.add(id));
+      }
     }
     const next = rows.length === limit ? String(rows.at(-1)!.id) : "00000000-0000-0000-0000-000000000000";
     await manager.query(`UPDATE mps_consistency_checkpoints SET metrics=metrics||jsonb_build_object('legacyRecoveryBaseCursor',$2::text),
       updated_at=clock_timestamp(),version=version+1 WHERE tenant_id=$1`, [tenantId, next]);
-    return { scanned: rows.length, restored, passComplete: wrapped || rows.length < limit };
+    return { scanned: rows.length, restored, passComplete: wrapped || rows.length < limit, basePlanIds: [...restoredBasePlanIds] };
   }
 
-  private async restoreVerifiedLegacyDemand(manager: EntityManager, tenantId: string, seed: Record<string, any>): Promise<boolean> {
+  private async restoreVerifiedLegacyDemand(manager: EntityManager, tenantId: string, seed: Record<string, any>, candidate: Record<string, any>): Promise<string[] | null> {
     const [monthly] = await manager.query(`SELECT * FROM mps_monthly_plans WHERE tenant_id=$1 AND id=$2::uuid FOR UPDATE`, [tenantId, seed.matched_monthly_id ?? seed.monthly_plan_id]);
     if (!monthly || monthly.order_number !== seed.order_number || monthly.item_code !== seed.item_code
       || String(monthly.division_id ?? "") !== String(seed.division_id ?? "")
-      || (monthly.customer_code != null && seed.customer_code != null && monthly.customer_code !== seed.customer_code)) return false;
-    const [candidate] = await manager.query(`${allocationProjectionCandidatesSql}
-      WHERE order_number=$2 AND item_code=$3 AND division_id=$4::uuid AND existing_id=$5::uuid`,
-      [tenantId, seed.order_number, seed.item_code, seed.division_id, monthly.id]);
+      || (monthly.customer_code != null && seed.customer_code != null && monthly.customer_code !== seed.customer_code)) return null;
     if (!candidate || candidate.skip_reason || !candidate.valid || !candidate.enabled_division_id
-      || Number(candidate.customer_count) !== 1 || String(candidate.customer_code ?? "") !== String(monthly.customer_code ?? "")) return false;
+      || Number(candidate.customer_count) !== 1 || String(candidate.customer_code ?? "") !== String(monthly.customer_code ?? "")) return null;
     const [facts] = await manager.query(`SELECT
         (m.required_quantity=$3::numeric) AS monthly_quantity_matches,
         (coalesce(sum(b.planned_quantity),0)=m.required_quantity) AS base_quantity_matches,
@@ -559,14 +571,14 @@ export class MasterPlanSyncService {
       WHERE m.tenant_id=$1 AND m.id=$2::uuid GROUP BY m.id,m.required_quantity`, [tenantId, monthly.id, candidate.quantity]);
     if (!facts || !facts.monthly_quantity_matches || !facts.base_quantity_matches || Number(facts.base_count) < 1
       || Number(facts.base_identity_conflicts) || Number(facts.conflicting_base_links) || Number(facts.weekly_count)
-      || facts.has_execution) return false;
+      || facts.has_execution) return null;
     if (candidate.recover_archived_source) {
       const [newSource] = await manager.query(`SELECT id FROM mps_order_allocations WHERE tenant_id=$1 AND id=$2::uuid
         AND archived_at IS NULL AND allocated_quantity>0 FOR SHARE`, [tenantId, candidate.allocation_id]);
-      if (!newSource) return false;
+      if (!newSource) return null;
       const afterSource = await recoverMonthlyAllocationSource(manager, monthly, String(candidate.allocation_id),
         MASTER_PLAN_SYSTEM_USER_ID, "KDOS历史计划自动恢复", `mps-lifecycle-recovery:${monthly.id}:${monthly.version}`);
-      if (afterSource.allocation_id !== candidate.allocation_id) return false;
+      if (afterSource.allocation_id !== candidate.allocation_id) return null;
       monthly.allocation_id = afterSource.allocation_id;
     }
     const source = await manager.query(`SELECT * FROM mps_order_allocations WHERE tenant_id=$1 AND order_number=$2 AND item_code=$3
@@ -574,10 +586,10 @@ export class MasterPlanSyncService {
       [tenantId, monthly.order_number, monthly.item_code, monthly.division_id]);
     const matchingSource = source.find((row: Record<string, any>) => String(row.id) === String(monthly.allocation_id)
       && (row.customer_code == null || monthly.customer_code == null || row.customer_code === monthly.customer_code));
-    if (!matchingSource) return false;
+    if (!matchingSource) return null;
     if (await demandLinksReady(manager)) {
       for (const allocation of source) {
-        if (allocation.monthly_plan_id != null && String(allocation.monthly_plan_id) !== String(monthly.id)) return false;
+        if (allocation.monthly_plan_id != null && String(allocation.monthly_plan_id) !== String(monthly.id)) return null;
         if (allocation.monthly_plan_id == null) await linkExistingDemandRecord(manager, 'mps-order-allocations', allocation,
           String(monthly.id), MASTER_PLAN_SYSTEM_USER_ID, 'KDOS历史计划自动恢复',
           `mps-lifecycle-recovery:${monthly.id}:allocation:${allocation.id}:${allocation.version}`, true);
@@ -586,7 +598,7 @@ export class MasterPlanSyncService {
     const baseLinks = await manager.query(`SELECT * FROM mps_base_plans WHERE tenant_id=$1 AND monthly_plan_id IS NULL
       AND (order_number,item_code,division_id) IS NOT DISTINCT FROM ($2,$3,$4::uuid) ORDER BY id FOR UPDATE`,
       [tenantId, monthly.order_number, monthly.item_code, monthly.division_id]);
-    if (baseLinks.length && !await demandLinksReady(manager)) return false;
+    if (baseLinks.length && !await demandLinksReady(manager)) return null;
     for (const base of baseLinks) await linkExistingDemandRecord(manager, 'mps-base-plans', base, String(monthly.id),
       MASTER_PLAN_SYSTEM_USER_ID, 'KDOS历史计划自动恢复', `mps-lifecycle-recovery:${monthly.id}:base:${base.id}:${base.version}`, true);
     await manager.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
@@ -604,7 +616,7 @@ export class MasterPlanSyncService {
           JSON.stringify(after), `mps-lifecycle-recovery:${resource}:${id}:${before.version}`]);
       return true;
     };
-    if (!await restore('mps_monthly_plans', 'mps-monthly-plans', String(monthly.id))) return false;
+    if (!await restore('mps_monthly_plans', 'mps-monthly-plans', String(monthly.id))) return null;
     const bases = await manager.query(`SELECT id FROM mps_base_plans WHERE tenant_id=$1 AND (monthly_plan_id=$2::uuid
       OR (monthly_plan_id IS NULL AND (order_number,item_code,division_id) IS NOT DISTINCT FROM ($3,$4,$5::uuid))) ORDER BY id`,
       [tenantId, monthly.id, monthly.order_number, monthly.item_code, monthly.division_id]);
@@ -620,7 +632,7 @@ export class MasterPlanSyncService {
         ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,
         [tenantId, scopeIds[0], JSON.stringify({ basePlanIds: scopeIds }), recoveryKey, MASTER_PLAN_SYSTEM_USER_ID]);
     }
-    return true;
+    return baseIds;
   }
 
   /**
