@@ -12,6 +12,7 @@ import { MasterPlanSyncService } from './master-plan.sync.service';
 import { STANDARD_PROCESSES } from './master-plan.domain';
 import { MasterPlanApplicationService } from './master-plan.application.service';
 import { MasterPlanQueryService } from './master-plan.query.service';
+import { allocationProjectionCandidatesSql } from './master-plan.allocation-projection';
 import { MASTER_PLAN_RESOURCE_MAP, fieldsFor } from './master-plan.config';
 import type { MasterPlanActor } from './master-plan.types';
 
@@ -159,6 +160,23 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
     expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND resource IN ('mps-monthly-plans','mps-base-plans')
       AND action IN ('mps-monthly-plans.lifecycle.auto_source_confirmed','mps-base-plans.lifecycle.auto_source_confirmed')`,[tenant]))[0].n).toBe(0);
+  });
+
+  it('runs the bounded operator recovery scope without falling back to a tenant-wide sync', async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false,'SYN-OPERATOR-RECOVERY');
+    await db.query("UPDATE mps_base_plans SET customer_code='SYN-CUSTOMER' WHERE id=$1",[base.id]);
+    const [candidate]=await db.query(`${allocationProjectionCandidatesSql} WHERE existing_id=$2::uuid`,[tenant,monthly.id]);
+    expect(candidate).toMatchObject({valid:true,enabled_division_id:division,customer_count:'1',quantity:'10.0000',skip_reason:null});
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await manager.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await manager.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    const result=await sync.recoverVerifiedLegacyHistory(tenant,randomUUID(),10);
+    expect(result).toMatchObject({scanned:1,restored:1,passComplete:true,maxPagesReached:false,outboxProcessed:1,outboxSucceeded:1,pendingRecoveryEvents:0});
+    const [week]=await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(week).toBeDefined();
+    expect(await db.query('SELECT id FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id])).toHaveLength(10);
   });
 
   it('reports full schema, service and per-operation readiness independently of the write switch', async () => {

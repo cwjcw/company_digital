@@ -19,6 +19,7 @@ import { MasterPlanExceptionNotificationService } from "./master-plan-exception-
 
 import { MasterPlanSyncRunner, type SyncRunType as RunType, type SyncScope, type SyncOutcome } from "./master-plan.sync-runner";
 export const MASTER_PLAN_SYSTEM_USER_ID = "0199e000-0000-7000-8000-000000000001";
+const LEGACY_RECOVERY_SCOPE_SENTINEL = "ffffffff-ffff-7fff-bfff-ffffffffffff";
 
 /** Inbound allocation protects plan identity, but does not prove an internal process route was initialized. */
 const weeklyHasProcessExecutionSql = (alias: string) => `(
@@ -427,7 +428,7 @@ export class MasterPlanSyncService {
     let pages = 0, scanned = 0, restored = 0, generated = 0, passComplete = false;
     while (pages < maxPages && !passComplete) {
       const result = await this.runInternal(tenantId, 'base-to-weekly', 'RECONCILIATION', MASTER_PLAN_SYSTEM_USER_ID,
-        'KDOS历史计划自动恢复', `mps-legacy-recovery:${batchId}:${pages}`, { basePlanIds: [] });
+        'KDOS历史计划自动恢复', `mps-legacy-recovery:${batchId}:${pages}`, { basePlanIds: [LEGACY_RECOVERY_SCOPE_SENTINEL] });
       pages++;
       scanned += Number(result.metrics?.legacy_recovery_scanned ?? 0);
       restored += Number(result.metrics?.legacy_lifecycle_restored ?? 0);
@@ -474,7 +475,8 @@ export class MasterPlanSyncService {
         executionScope&&'allocation' in executionScope?executionScope.allocation:null),
       "shipping-to-base": () => this.shippingToBase(tenantId, userId, actorName, transaction, monthlyPlans, trustedInternalService),
       "base-to-weekly": async () => {
-        const operatorRecoveryBatch = Boolean(executionScope && 'basePlanIds' in executionScope && executionScope.basePlanIds.length === 0);
+        const operatorRecoveryBatch = Boolean(executionScope && 'basePlanIds' in executionScope
+          && executionScope.basePlanIds.length === 1 && executionScope.basePlanIds[0] === LEGACY_RECOVERY_SCOPE_SENTINEL);
         const recover = trustedInternalService && userId === MASTER_PLAN_SYSTEM_USER_ID && transaction
           && (!executionScope || operatorRecoveryBatch);
         const recovered = recover ? await this.recoverVerifiedLegacyPage(transaction, tenantId)
