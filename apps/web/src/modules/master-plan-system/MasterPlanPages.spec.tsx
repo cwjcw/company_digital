@@ -521,7 +521,7 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
 
     expect(await screen.findByText("待完善", {}, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.getByText("缺少：最迟评审交期、生产方式")).toBeInTheDocument();
-    expect(screen.getByText("生成失败：未维护工序周期")).toBeInTheDocument();
+    expect(screen.getByText("同步提示：未维护工序周期")).toBeInTheDocument();
   });
 
   it("shows the manual base-to-weekly action only with sync update permission", async () => {
