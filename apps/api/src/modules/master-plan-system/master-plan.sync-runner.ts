@@ -8,7 +8,7 @@ export type SyncExecutionScope = { weeklyPlanId: string; processCode: string };
 export type SyncScope = SyncExecutionScope | {basePlanIds:string[]} | {monthlyPlans:Array<{id:string;expectedVersion:number}>}
   | {allocationKey:DemandKey} | { allocation: { id:string; expectedVersion:number; orderNumber:string; itemCode:string; divisionId:string } };
 export type SyncOutcomeStatus = "SUCCESS" | "SKIPPED" | "BLOCKED" | "DISABLED";
-export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean };
+export type SyncOutcome = { count: number; metrics?: Record<string, number>; status?: SyncOutcomeStatus; skipped?: boolean; retryable?: boolean };
 export type SyncResult = { syncKey: string; status: SyncOutcomeStatus; count: number; repeated: boolean; metrics: Record<string, number> | null };
 type Event = { resource?:string; id: string; tenant_id: string; sync_key: string; scope_json: unknown; version: number;
   actor_id: string; actor_name: string; idempotency_key: string; record_id?:string|null; business_key?:string|null; attempts?:number; last_error?:string|null };
@@ -269,7 +269,7 @@ export class MasterPlanSyncRunner {
       await this.audit(manager, claim.tenant, claim.actorId, claim.actorName, log.id, "attempt_finished",
         { status: "RUNNING", version: log.version }, { status: success ? "SUCCESS" : "FAILED", outcome: failureMessage ? "FAILED" : outcome.status, count: outcome.count });
     }
-    await this.finishEvents(manager, claim.events, success ? "SUCCESS" : "FAILED", error, !failureMessage&&outcome.status==='BLOCKED');
+    await this.finishEvents(manager, claim.events, success ? "SUCCESS" : "FAILED", error, !failureMessage&&outcome.status==='BLOCKED'&&outcome.retryable!==true);
     if(success&&claim.key==='plan-projections'&&claim.events.length){
       const scope=this.scope(claim.key,claim.events[0]!.scope_json);
       const key=scope&&('allocationKey' in scope?scope.allocationKey:'allocation' in scope?scope.allocation:null);

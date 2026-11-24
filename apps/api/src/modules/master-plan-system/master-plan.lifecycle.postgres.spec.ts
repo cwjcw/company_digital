@@ -6,6 +6,7 @@ import { MasterPlanProcessReportException1722920061000 as ReportException } from
 import { MasterPlanThreeDayWorkOrders1722920063000 as WorkOrders } from '../../migrations/1722920063000-MasterPlanThreeDayWorkOrders';
 import { MpsExecutionFactProtection1722920119000 as Protection } from '../../migrations/1722920119000-MpsExecutionFactProtection';
 import { MpsPlanLifecycle1722920120000 as Lifecycle } from '../../migrations/1722920120000-MpsPlanLifecycle';
+import { MpsInboundOnlySnapshotInitialization1722920134000 as InboundSnapshotInitialization } from '../../migrations/1722920134000-MpsInboundOnlySnapshotInitialization';
 import { MasterPlanLifecycleService } from './master-plan.lifecycle.service';
 import { MasterPlanSyncService } from './master-plan.sync.service';
 import { STANDARD_PROCESSES } from './master-plan.domain';
@@ -50,13 +51,17 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     const qr={ query: (sql:string,args?:unknown[]) => db.query(sql,args) } as QueryRunner;
     await db.query(`ALTER TABLE mps_monthly_plans ADD COLUMN allocation_id uuid;
       ALTER TABLE mps_base_plans ADD COLUMN monthly_plan_id uuid;
-      ALTER TABLE mps_order_allocations ADD COLUMN archived_at timestamptz,ADD COLUMN manually_maintained boolean DEFAULT true;
+      ALTER TABLE mps_order_allocations ADD COLUMN archived_at timestamptz,ADD COLUMN manually_maintained boolean DEFAULT true,ADD COLUMN monthly_plan_id uuid;
+      CREATE TABLE mps_consistency_checkpoints(tenant_id varchar(64) PRIMARY KEY,metrics jsonb NOT NULL DEFAULT '{}'::jsonb,updated_at timestamptz DEFAULT now(),version integer DEFAULT 1);
       CREATE TABLE roles(id uuid,permission_group_resource text);
       CREATE TABLE permissions(role_id uuid,resource text,field_key text,"read" boolean,"create" boolean,"copy" boolean,"update" boolean,"delete" boolean,batch_print boolean,batch_update boolean,"import" boolean,"export" boolean,updated_by text);
       CREATE TABLE erp_staging_raw_records(tenant_id text,order_number text,item_code text,record_type text,source_table text,order_link_stable boolean,status_code text,source_database text,source_system text,source_id text);
       CREATE TABLE finished_goods_inbound(source_database text,source_system text,source_key text,sales_order_number text,inventory_code text,received_quantity numeric);
       CREATE TABLE idempotency_keys(key text PRIMARY KEY,request_hash text,response_json jsonb,created_by uuid,updated_by uuid);`);
-    await new ReportException().up(qr); await new WorkOrders().up(qr); await new Protection().up(qr);
+    await new ReportException().up(qr); await new WorkOrders().up(qr); await new Protection().up(qr); await new InboundSnapshotInitialization().up(qr);
+    await db.query(`INSERT INTO users(id,username,display_name,enabled,created_by,updated_by)
+      VALUES('0199e000-0000-7000-8000-000000000001','__kdos_system__','KDOS系统任务',false,$1,$1)
+      ON CONFLICT(id) DO NOTHING`, [user]);
     // Prove additive migration retains old IDs, quantities and version without a business-data UPDATE.
     const [old]=await db.query(`INSERT INTO mps_base_plans(tenant_id,order_number,item_code,delivery_number,planned_quantity,latest_customer_due_date,latest_review_due_date,product_attribute,surface_nature,manufacturing_method,created_by,updated_by)VALUES($1,'SYN-OLD','SYN-OLD',1,7,'2026-12-20','2026-12-01','五金','烤漆','自制',$2,$2)RETURNING *`,[tenant,user]);
     await new Lifecycle().up(qr);
@@ -73,11 +78,87 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
       SELECT $1,$2,process_code,1,true,sequence,$3::uuid,$3 FROM unnest(ARRAY['cutting','machining','bending','spotWelding','welding','woodworking','grinding','blank','surfaceTreatment','packaging']::text[]) WITH ORDINALITY p(process_code,sequence)`,[tenant,division,user]);
     await db.query('DELETE FROM mps_sync_configs WHERE tenant_id=$1',[tenant]);
     for(const key of ['base-to-weekly','execution-rollup']) await db.query(`INSERT INTO mps_sync_configs(tenant_id,sync_key,name,enabled,interval_minutes,created_by,updated_by)VALUES($1,$2,'合成任务',true,30,$3,$3)`,[tenant,key,user]);
+    await db.query(`INSERT INTO mps_consistency_checkpoints(tenant_id) VALUES($1) ON CONFLICT(tenant_id) DO UPDATE SET metrics='{}'::jsonb,version=1`,[tenant]);
   });
   afterAll(async()=>{
     if(originalGate===undefined)delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;else process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED=originalGate;
     if(originalSecret===undefined)delete process.env.JWT_ACCESS_SECRET;else process.env.JWT_ACCESS_SECRET=originalSecret;
     if(db?.isInitialized)await db.destroy();
+  });
+
+  it('automatically confirms a verified legacy source and generates weekly process tasks through runDue despite inbound and the manual lifecycle flag being off', async()=>{
+    const [allocation] = await db.query(`INSERT INTO mps_order_allocations(tenant_id,division_id,order_number,item_code,customer_code,allocated_quantity,order_status,manually_maintained,created_by,updated_by)
+      VALUES($1,$2,'AUTO-LEGACY-1','AUTO-ITEM-1','AUTO-CUSTOMER',10,'待审核',true,$3,$3) RETURNING *`,[tenant,division,user]);
+    const [monthly] = await db.query(`INSERT INTO mps_monthly_plans(tenant_id,division_id,order_number,item_code,customer_code,allocation_id,required_quantity,created_by,updated_by)
+      VALUES($1,$2,'AUTO-LEGACY-1','AUTO-ITEM-1','AUTO-CUSTOMER',$3,10,$4,$4) RETURNING *`,[tenant,division,allocation.id,user]);
+    await db.query(`UPDATE mps_order_allocations SET monthly_plan_id=$2 WHERE id=$1`,[allocation.id,monthly.id]);
+    const [base] = await db.query(`INSERT INTO mps_base_plans(tenant_id,division_id,customer_code,order_number,item_code,item_name,delivery_number,planned_quantity,
+      latest_customer_due_date,latest_review_due_date,product_attribute,surface_nature,manufacturing_method,monthly_plan_id,created_by,updated_by)
+      VALUES($1,$2,'AUTO-CUSTOMER','AUTO-LEGACY-1','AUTO-ITEM-1','合成品项',1,10,'2026-12-20','2026-12-01','五金','烤漆','自制',$3,$4,$4) RETURNING *`,[tenant,division,monthly.id,user]);
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await manager.query(`UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1`,[monthly.id]);
+      await manager.query(`UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1`,[base.id]);
+    });
+    await db.query(`INSERT INTO erp_staging_raw_records(tenant_id,order_number,item_code,record_type,source_table,order_link_stable,status_code,source_database,source_system,source_id)
+      VALUES($1,'AUTO-LEGACY-1','AUTO-ITEM-1','INBOUND_LINE','ST_RDRecord_b',true,'189','fixture-db','fixture-erp','inbound-1')`,[tenant]);
+    await db.query(`INSERT INTO finished_goods_inbound(source_database,source_system,source_key,sales_order_number,inventory_code,received_quantity)
+      VALUES('fixture-db','fixture-erp','inbound-1','AUTO-LEGACY-1','AUTO-ITEM-1',2)`);
+    const [event] = await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
+      VALUES($1,'mps-base-plans',$2::uuid,'base-to-weekly',$3::jsonb,$4,$5::uuid,'合成事件',$5::uuid,$5::uuid) RETURNING id`,
+      [tenant,base.id,JSON.stringify({basePlanIds:[base.id]}),`legacy-runDue-${randomUUID()}`,user]);
+    await sync.processOutboxEvent(tenant,String(event.id));
+    const [blockedReceipt]=await db.query(`SELECT status,last_error,isfinite(next_attempt_at) retryable FROM mps_reconciliation_outbox WHERE id=$1`,[event.id]);
+    expect(blockedReceipt).toMatchObject({status:'FAILED',last_error:'同步未完整成功：BLOCKED',retryable:true});
+    expect(await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+    await db.query(`UPDATE mps_sync_configs SET last_started_at=NULL,status='FAILED' WHERE tenant_id=$1 AND sync_key='base-to-weekly'`,[tenant]);
+    const priorTenant=process.env.KDOS_DEFAULT_TENANT_CODE;
+    const priorGate=process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
+    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
+    process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='false';
+    jest.spyOn(sync,'scanConsistencyPage').mockResolvedValue({ready:false,scanned:0,inconsistent:0,enqueued:0} as never);
+    try { await sync.runDue(); } finally {
+      if(priorTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=priorTenant;
+      if(priorGate===undefined)delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;else process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED=priorGate;
+    }
+    await db.query('UPDATE mps_reconciliation_outbox SET next_attempt_at=clock_timestamp() WHERE id=$1',[event.id]);
+    await sync.processOutboxEvent(tenant,String(event.id));
+    const [restoredMonth]=await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]);
+    const [restoredBase]=await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]);
+    const weeks=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    const taskRows=await db.query('SELECT * FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,weeks[0]?.id]);
+    const [receipt]=await db.query(`SELECT o.status,l.status log_status,l.metrics FROM mps_reconciliation_outbox o
+      JOIN mps_sync_logs l ON l.tenant_id=o.tenant_id AND l.sync_key=o.sync_key AND l.idempotency_key=o.idempotency_key WHERE o.id=$1`,[event.id]);
+    const [scheduled]=await db.query(`SELECT metrics FROM mps_sync_logs WHERE tenant_id=$1 AND sync_key='base-to-weekly'
+      AND idempotency_key LIKE 'scheduled:base-to-weekly:%' ORDER BY started_at DESC LIMIT 1`,[tenant]);
+    expect(restoredMonth.lifecycle_status).toBe('ACTIVE');
+    expect(restoredBase.lifecycle_status).toBe('ACTIVE');
+    expect(weeks).toHaveLength(1);
+    expect(taskRows).toHaveLength(10);
+    expect(receipt).toMatchObject({status:'SUCCESS',log_status:'SUCCESS'});
+    expect(Number(scheduled.metrics.process_tasks_initialized)).toBe(10);
+    expect(Number(scheduled.metrics.legacy_lifecycle_restored)).toBe(1);
+    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND action='mps-monthly-plans.lifecycle.auto_source_confirmed'`,[tenant]))[0].n).toBe(1);
+    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND action='mps-base-plans.lifecycle.auto_source_confirmed'`,[tenant]))[0].n).toBe(1);
+  });
+
+  it.each(['ON_HOLD','CANCELLED'] as const)('never auto-confirms a source or generates a week for a %s monthly/base plan', async status=>{
+    const {monthly,base}=await makePlan(10,'自制',false,`SYN-RECOVERY-${status}`);
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await manager.query("UPDATE mps_monthly_plans SET lifecycle_status=$2 WHERE id=$1",[monthly.id,status]);
+      await manager.query("UPDATE mps_base_plans SET lifecycle_status=$2 WHERE id=$1",[base.id,status]);
+    });
+    const previousTenant=process.env.KDOS_DEFAULT_TENANT_CODE;
+    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
+    try { await sync.runDue(); } finally {
+      if(previousTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=previousTenant;
+    }
+    expect((await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0].lifecycle_status).toBe(status);
+    expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe(status);
+    expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND resource IN ('mps-monthly-plans','mps-base-plans')
+      AND action IN ('mps-monthly-plans.lifecycle.auto_source_confirmed','mps-base-plans.lifecycle.auto_source_confirmed')`,[tenant]))[0].n).toBe(0);
   });
 
   it('reports full schema, service and per-operation readiness independently of the write switch', async () => {
