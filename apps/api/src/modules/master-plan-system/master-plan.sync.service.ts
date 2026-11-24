@@ -507,6 +507,7 @@ export class MasterPlanSyncService {
     await manager.query(`INSERT INTO mps_consistency_checkpoints(tenant_id) VALUES($1) ON CONFLICT(tenant_id) DO NOTHING`, [tenantId]);
     const [checkpoint] = await manager.query(`SELECT metrics FROM mps_consistency_checkpoints WHERE tenant_id=$1 FOR UPDATE`, [tenantId]);
     if (!checkpoint) return { scanned: 0, restored: 0, passComplete: true, basePlanIds: [] as string[] };
+    const admission = weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!, "b");
     const cursor = String(checkpoint.metrics?.legacyRecoveryBaseCursor ?? "00000000-0000-0000-0000-000000000000");
     let rows = await manager.query(`SELECT b.id,b.order_number,b.item_code,b.division_id,b.customer_code,b.monthly_plan_id,m.id AS matched_monthly_id
       FROM mps_base_plans b JOIN mps_monthly_plans m ON m.tenant_id=b.tenant_id AND
@@ -514,6 +515,7 @@ export class MasterPlanSyncService {
       WHERE b.tenant_id=$1 AND b.id>$2::uuid
         AND (b.lifecycle_status='LEGACY_RETAINED' OR m.lifecycle_status='LEGACY_RETAINED')
         AND b.lifecycle_status NOT IN ('ON_HOLD','CANCELLED') AND m.lifecycle_status NOT IN ('ON_HOLD','CANCELLED')
+        AND ${admission}
         AND NOT EXISTS(SELECT 1 FROM mps_weekly_plans w WHERE w.tenant_id=b.tenant_id AND w.base_plan_id=b.id)
       ORDER BY b.id LIMIT $3`, [tenantId, cursor, limit]);
     const wrapped = !rows.length && cursor !== "00000000-0000-0000-0000-000000000000";
@@ -523,6 +525,7 @@ export class MasterPlanSyncService {
           (m.id=b.monthly_plan_id OR (b.monthly_plan_id IS NULL AND (m.order_number,m.item_code,m.division_id) IS NOT DISTINCT FROM (b.order_number,b.item_code,b.division_id)))
         WHERE b.tenant_id=$1 AND (b.lifecycle_status='LEGACY_RETAINED' OR m.lifecycle_status='LEGACY_RETAINED')
           AND b.lifecycle_status NOT IN ('ON_HOLD','CANCELLED') AND m.lifecycle_status NOT IN ('ON_HOLD','CANCELLED')
+          AND ${admission}
           AND NOT EXISTS(SELECT 1 FROM mps_weekly_plans w WHERE w.tenant_id=b.tenant_id AND w.base_plan_id=b.id)
         ORDER BY b.id LIMIT $2`, [tenantId, limit]);
     }

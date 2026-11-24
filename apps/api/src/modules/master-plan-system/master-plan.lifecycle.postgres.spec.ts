@@ -162,6 +162,24 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
       AND action IN ('mps-monthly-plans.lifecycle.auto_source_confirmed','mps-base-plans.lifecycle.auto_source_confirmed')`,[tenant]))[0].n).toBe(0);
   });
 
+  it('keeps source lifecycle retained until the shared weekly admission fields are complete', async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false,'SYN-INCOMPLETE-RECOVERY');
+    await db.query('UPDATE mps_base_plans SET latest_review_due_date=NULL WHERE id=$1',[base.id]);
+    await db.transaction(async manager=>{
+      await manager.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await manager.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await manager.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    const previousTenant=process.env.KDOS_DEFAULT_TENANT_CODE;
+    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
+    try { await sync.runDue(); } finally {
+      if(previousTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=previousTenant;
+    }
+    expect((await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0].lifecycle_status).toBe('LEGACY_RETAINED');
+    expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe('LEGACY_RETAINED');
+    expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+  });
+
   it('runs the bounded operator recovery scope without falling back to a tenant-wide sync', async()=>{
     const {monthly,base}=await makePlan(10,'自制',false,'SYN-OPERATOR-RECOVERY');
     await db.query("UPDATE mps_base_plans SET customer_code='SYN-CUSTOMER' WHERE id=$1",[base.id]);
