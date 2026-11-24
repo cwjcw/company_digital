@@ -144,7 +144,7 @@ export class MasterPlanDashboardService {
     const definitions: Record<MpsDashboardGapKey, { source: string; where: string; fields: Record<string, string>; node: string }> = {
       "missing-shipping-plan": { source: "monthly_data", where: "r.required_quantity>0 AND NOT EXISTS(SELECT 1 FROM authorized_shipping s WHERE s.tenant_id=r.tenant_id AND s.monthly_plan_id=r.id)", fields: monthly, node: "出货计划" },
       "missing-base-plan": { source: "scoped_shipping", where: "NOT EXISTS(SELECT 1 FROM authorized_base b WHERE b.tenant_id=r.tenant_id AND b.shipping_plan_id=r.id)", fields: { plannedQuantity: "r.planned_quantity::text", deliveryNumber: "r.delivery_number" }, node: "基础计划" },
-      "missing-weekly-plan": { source: "base_data", where: 'r."weeklyPlanState"=\'已具备条件\'', fields: base, node: "周计划" },
+      "missing-weekly-plan": { source: "base_data", where: 'r."weeklyPlanState" IN (\'已具备条件，等待自动同步\',\'同步失败\')', fields: base, node: "周计划" },
       "plan-not-ready": { source: "base_data", where: 'r."weeklyPlanState"=\'待完善\'', fields: base, node: "计划准备" },
       "not-started-production": { source: "scoped_weekly", where: "r.planned_quantity>0 AND COALESCE((SELECT quantity FROM weekly_reported p WHERE p.weekly_plan_id=r.id),0)=0", fields: { plannedQuantity: "r.planned_quantity::text", deliveryNumber: "r.delivery_number", reportedQuantity: "'0'::text" }, node: "生产报工" },
       "no-inbound": { source: "monthly_data", where: "r.required_quantity>0 AND r.cumulative_inbound_quantity=0", fields: monthly, node: "入库" },

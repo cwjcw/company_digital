@@ -18,6 +18,7 @@
     "mps:restore-missing-bases": "pnpm build && node dist/restore-mps-missing-bases.js",
     "mps:restore-verified-legacy-plans": "pnpm build && node dist/restore-mps-verified-legacy-plans.js",
     "mps:recover-legacy-sources": "pnpm build && node dist/recover-mps-legacy-sources.js",
+    "mps:reconcile-weekly-readiness": "pnpm build && node dist/reconcile-mps-weekly-readiness.js",
     "mps:restore-verified-division-routes": "pnpm build && node dist/restore-mps-division-process-routes.js",
     "db:migrate:sync-maintenance": "pnpm build && node dist/migrate-sync-maintenance.js",
     "db:migrate:review-due-independence": "pnpm build && node dist/migrate-review-due-independence.js",

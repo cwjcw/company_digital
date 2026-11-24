@@ -32,7 +32,7 @@ export function mpsDashboardDateRange(input: MpsDashboardFilters): { start: stri
 export const mpsDashboardGaps = [
   { key: "missing-shipping-plan", title: "未进入出货计划", metric: "missingShippingCount", dependencies: ["requiredQuantity"] },
   { key: "missing-base-plan", title: "未进入基础计划", metric: "missingBaseCount", dependencies: ["plannedQuantity"] },
-  { key: "missing-weekly-plan", title: "未进入周计划（已具备条件）", metric: "missingWeeklyCount", dependencies: ["weeklyPlanState"] },
+  { key: "missing-weekly-plan", title: "未进入周计划（具备条件或同步失败）", metric: "missingWeeklyCount", dependencies: ["weeklyPlanState"] },
   { key: "plan-not-ready", title: "计划待完善", metric: "planNotReadyCount", dependencies: ["weeklyPlanState"] },
   { key: "not-started-production", title: "未开始报工", metric: "notStartedProductionCount", dependencies: ["plannedQuantity", "reportedQuantity"] },
   { key: "no-inbound", title: "未入库", metric: "noInboundCount", dependencies: ["requiredQuantity", "cumulativeInboundQuantity"] },

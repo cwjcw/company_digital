@@ -29,14 +29,14 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
   const facts = () => db.query('SELECT * FROM mps_process_reports ORDER BY id');
   const tasks = () => db.query('SELECT id,weekly_plan_id,process_code,sequence,cycle_days,execution_enabled FROM mps_weekly_process_plans ORDER BY id');
   const report = (id: string, quantity=3) => app.create('mps-process-reports', { weeklyPlanId: id, processCode: 'bending', productionDate: '2026-11-01', productionQuantity: quantity, exceptionText: '合成历史异常' }, actor());
-  const makePlan = async (quantity=10, method='自制', generateWeekly=true, item='SYN-ITEM') => {
+  const makePlan = async (quantity=10, method='自制', generateWeekly=true, item='SYN-ITEM', linkMonthly=true) => {
     const [allocation] = await db.query(`INSERT INTO mps_order_allocations(tenant_id,division_id,order_number,item_code,customer_code,allocated_quantity,order_status,manually_maintained,created_by,updated_by)
       VALUES($1,$2,'SYN-ORDER',$5,'SYN-CUSTOMER',$3,'已审核',true,$4,$4) RETURNING *`, [tenant,division,quantity,user,item]);
     const [monthly] = await db.query(`INSERT INTO mps_monthly_plans(tenant_id,division_id,order_number,item_code,customer_code,allocation_id,required_quantity,created_by,updated_by)
       VALUES($1,$2,'SYN-ORDER',$6,'SYN-CUSTOMER',$3,$4,$5,$5) RETURNING *`, [tenant,division,allocation.id,quantity,user,item]);
     const [base] = await db.query(`INSERT INTO mps_base_plans(tenant_id,division_id,order_number,item_code,item_name,delivery_number,planned_quantity,
       latest_customer_due_date,latest_review_due_date,product_attribute,surface_nature,manufacturing_method,monthly_plan_id,created_by,updated_by)
-      VALUES($1,$2,'SYN-ORDER',$7,'合成品项',1,$3,'2026-12-20','2026-12-01','五金','烤漆',$4,$5,$6,$6) RETURNING *`, [tenant,division,quantity,method,monthly.id,user,item]);
+      VALUES($1,$2,'SYN-ORDER',$7,'合成品项',1,$3,'2026-12-20','2026-12-01','五金','烤漆',$4,CASE WHEN $8::boolean THEN $5::uuid ELSE NULL END,$6,$6) RETURNING *`, [tenant,division,quantity,method,monthly.id,user,item,linkMonthly]);
     if(generateWeekly){const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());expect(result.status).toBe('SUCCESS');}
     const [week] = await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
     return { allocation, monthly, base, week };
@@ -87,7 +87,7 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     if(db?.isInitialized)await db.destroy();
   });
 
-  it('automatically confirms a verified legacy source and generates weekly process tasks through runDue despite inbound and the manual lifecycle flag being off', async()=>{
+  it('generates weekly process tasks for LEGACY_RETAINED plans with inbound through outbox and runDue while lifecycle writes are off', async()=>{
     const [allocation] = await db.query(`INSERT INTO mps_order_allocations(tenant_id,division_id,order_number,item_code,customer_code,allocated_quantity,order_status,manually_maintained,created_by,updated_by)
       VALUES($1,$2,'AUTO-LEGACY-1','AUTO-ITEM-1','AUTO-CUSTOMER',10,'待审核',true,$3,$3) RETURNING *`,[tenant,division,user]);
     const [monthly] = await db.query(`INSERT INTO mps_monthly_plans(tenant_id,division_id,order_number,item_code,customer_code,allocation_id,required_quantity,created_by,updated_by)
@@ -108,39 +108,31 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     const [event] = await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,scope_json,idempotency_key,actor_id,actor_name,created_by,updated_by)
       VALUES($1,'mps-base-plans',$2::uuid,'base-to-weekly',$3::jsonb,$4,$5::uuid,'合成事件',$5::uuid,$5::uuid) RETURNING id`,
       [tenant,base.id,JSON.stringify({basePlanIds:[base.id]}),`legacy-runDue-${randomUUID()}`,user]);
-    await sync.processOutboxEvent(tenant,String(event.id));
-    const [blockedReceipt]=await db.query(`SELECT status,last_error,isfinite(next_attempt_at) retryable FROM mps_reconciliation_outbox WHERE id=$1`,[event.id]);
-    expect(blockedReceipt).toMatchObject({status:'FAILED',last_error:'同步未完整成功：BLOCKED',retryable:true});
-    expect(await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
-    await db.query(`UPDATE mps_sync_configs SET last_started_at=NULL,status='FAILED' WHERE tenant_id=$1 AND sync_key='base-to-weekly'`,[tenant]);
-    const priorTenant=process.env.KDOS_DEFAULT_TENANT_CODE;
-    const priorGate=process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
-    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
-    process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='false';
+    const priorTenant=process.env.KDOS_DEFAULT_TENANT_CODE,priorGate=process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
+    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='false';
     jest.spyOn(sync,'scanConsistencyPage').mockResolvedValue({ready:false,scanned:0,inconsistent:0,enqueued:0} as never);
+    await sync.processOutboxEvent(tenant,String(event.id));
+    const [week]=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(week).toBeDefined();
+    expect(await db.query('SELECT * FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id])).toHaveLength(10);
+    expect((await db.query('SELECT status FROM mps_reconciliation_outbox WHERE id=$1',[event.id]))[0].status).toBe('SUCCESS');
+    expect((await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0].lifecycle_status).toBe('LEGACY_RETAINED');
+    expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe('LEGACY_RETAINED');
+    await db.query(`UPDATE mps_sync_configs SET last_started_at=NULL,status='FAILED' WHERE tenant_id=$1 AND sync_key='base-to-weekly'`,[tenant]);
     try { await sync.runDue(); } finally {
       if(priorTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=priorTenant;
       if(priorGate===undefined)delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;else process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED=priorGate;
     }
-    await db.query('UPDATE mps_reconciliation_outbox SET next_attempt_at=clock_timestamp() WHERE id=$1',[event.id]);
-    await sync.processOutboxEvent(tenant,String(event.id));
-    const [restoredMonth]=await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]);
-    const [restoredBase]=await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]);
-    const weeks=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
-    const taskRows=await db.query('SELECT * FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,weeks[0]?.id]);
+    const taskRows=await db.query('SELECT * FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id]);
     const [receipt]=await db.query(`SELECT o.status,l.status log_status,l.metrics FROM mps_reconciliation_outbox o
       JOIN mps_sync_logs l ON l.tenant_id=o.tenant_id AND l.sync_key=o.sync_key AND l.idempotency_key=o.idempotency_key WHERE o.id=$1`,[event.id]);
     const [scheduled]=await db.query(`SELECT metrics FROM mps_sync_logs WHERE tenant_id=$1 AND sync_key='base-to-weekly'
       AND idempotency_key LIKE 'scheduled:base-to-weekly:%' ORDER BY started_at DESC LIMIT 1`,[tenant]);
-    expect(restoredMonth.lifecycle_status).toBe('ACTIVE');
-    expect(restoredBase.lifecycle_status).toBe('ACTIVE');
-    expect(weeks).toHaveLength(1);
     expect(taskRows).toHaveLength(10);
     expect(receipt).toMatchObject({status:'SUCCESS',log_status:'SUCCESS'});
-    expect(Number(scheduled.metrics.process_tasks_initialized)).toBe(10);
-    expect(Number(scheduled.metrics.legacy_lifecycle_restored)).toBe(1);
-    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND action='mps-monthly-plans.lifecycle.auto_source_confirmed'`,[tenant]))[0].n).toBe(1);
-    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND action='mps-base-plans.lifecycle.auto_source_confirmed'`,[tenant]))[0].n).toBe(1);
+    expect(Number(scheduled.metrics.weekly_plans_changed)).toBe(0);
+    expect(Number(scheduled.metrics.process_tasks_initialized)).toBe(0);
+    expect((await db.query(`SELECT count(*)::int n FROM audit_logs WHERE tenant_id=$1 AND action IN ('mps-monthly-plans.lifecycle.auto_source_confirmed','mps-base-plans.lifecycle.auto_source_confirmed')`,[tenant]))[0].n).toBe(0);
   });
 
   it.each(['ON_HOLD','CANCELLED'] as const)('never auto-confirms a source or generates a week for a %s monthly/base plan', async status=>{
@@ -224,23 +216,25 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     expect(await db.query('SELECT id,weekly_plan_id,process_code,sequence,cycle_days,execution_enabled FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2 ORDER BY id',[tenant,week.id])).toHaveLength(10);
   });
 
-  it('keeps missing routes explicitly blocked without generic fallback and retries after a default route is saved',async()=>{
+  it('keeps missing routes explicitly blocked without creating a weekly row or generic fallback, then auto-scans after route setup',async()=>{
     await db.query('DELETE FROM mps_division_process_configs WHERE tenant_id=$1 AND division_id=$2',[tenant,division]);
     const {base}=await makePlan(14,'自制',false);
     const previousTenant=process.env.KDOS_DEFAULT_TENANT_CODE;
     process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
     try{await sync.runDue();}finally{if(previousTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=previousTenant;}
-    const [week]=await db.query('SELECT * FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
-    expect(week).toBeDefined();
-    expect((await db.query('SELECT count(*)::int n FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id]))[0].n).toBe(0);
-    expect((await db.query("SELECT message FROM mps_data_exceptions WHERE tenant_id=$1 AND exception_key=$2 AND active=true",[tenant,`division-process-config-missing:${week.id}`]))[0].message).toContain('没有已启用的默认工序配置');
-    expect((await db.query("SELECT status,metrics FROM mps_sync_logs WHERE tenant_id=$1 AND sync_key='base-to-weekly' AND run_type='SCHEDULED' ORDER BY started_at DESC LIMIT 1",[tenant]))[0]).toMatchObject({status:'SUCCESS',metrics:expect.objectContaining({process_routes_blocked:1})});
+    expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+    const state=await query.list('mps-base-plans',{},actor());
+    expect(state.rows.find((row:any)=>row.id===base.id)).toMatchObject({weeklyPlanState:'生成受阻',weeklyPlanGenerationIssue:'缺少事业部有效默认工序路线'});
+    expect((await db.query("SELECT status,metrics FROM mps_sync_logs WHERE tenant_id=$1 AND sync_key='base-to-weekly' AND run_type='SCHEDULED' ORDER BY started_at DESC LIMIT 1",[tenant]))[0]).toMatchObject({status:'SUCCESS',metrics:expect.objectContaining({weekly_plans_changed:0,business_rule_blocked:1})});
 
     for(const [index,[processCode]] of STANDARD_PROCESSES.entries())
       await app.create('mps-division-process-configs',{divisionId:division,processCode,defaultEnabled:true,sequence:index+1,cycleDays:2},actor());
-    expect(await sync.processOutbox()).toBeGreaterThan(0);
+    const previousTenantAfterRoute=process.env.KDOS_DEFAULT_TENANT_CODE;process.env.KDOS_DEFAULT_TENANT_CODE=tenant;
+    try { await sync.runDue(); } finally { if(previousTenantAfterRoute===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=previousTenantAfterRoute; }
+    const [week]=await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(week).toBeDefined();
     expect((await db.query('SELECT count(*)::int n FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id]))[0].n).toBe(10);
-    expect((await db.query("SELECT active FROM mps_data_exceptions WHERE tenant_id=$1 AND exception_key=$2",[tenant,`division-process-config-missing:${week.id}`]))[0].active).toBe(false);
+    expect(await db.query("SELECT active FROM mps_data_exceptions WHERE tenant_id=$1 AND exception_key=$2",[tenant,`division-process-config-missing:${week.id}`])).toHaveLength(0);
   });
 
   it('treats manual-quantity preservation as a row-level outcome while syncing eligible peers',async()=>{
@@ -324,17 +318,57 @@ integration('MPS 1C lifecycle: isolated PG18, migrations 118 + 119 + 120', () =>
     expect((await db.query('SELECT lifecycle_status FROM mps_monthly_plans WHERE id=$1',[monthly.id]))[0].lifecycle_status).toBe('ACTIVE');
     expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe('ACTIVE');
   });
-  it('keeps legacy base plans quarantined from weekly generation while unrelated active sync succeeds',async()=>{
-    const {monthly,base}=await makePlan(10,'自制',false);
+  it('generates an unlinked LEGACY_RETAINED base plan through scheduled sync with lifecycle writes disabled and exhausted failed history',async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false,'SYN-UNLINKED-LEGACY',false);
     await db.transaction(async m=>{
       await m.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
       await m.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
       await m.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
     });
-    const result=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());
-    expect(result.status).toBe('SUCCESS');
-    expect(await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id])).toHaveLength(0);
+    const [oldEvent]=await db.query(`INSERT INTO mps_reconciliation_outbox(tenant_id,resource,record_id,sync_key,idempotency_key,actor_id,actor_name,status,attempts,last_error,completed_at,created_by,updated_by,next_attempt_at)
+      VALUES($1,'mps-base-plans',$2,'base-to-weekly',$3,$4,'合成历史事件','FAILED',10,'历史来源待核实',clock_timestamp(),$4,$4,'infinity'::timestamptz) RETURNING id`,[tenant,base.id,randomUUID(),user]);
+    const priorTenant=process.env.KDOS_DEFAULT_TENANT_CODE, priorGate=process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;
+    process.env.KDOS_DEFAULT_TENANT_CODE=tenant;process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED='false';
+    try { await sync.runDue(); } finally {
+      if(priorTenant===undefined)delete process.env.KDOS_DEFAULT_TENANT_CODE;else process.env.KDOS_DEFAULT_TENANT_CODE=priorTenant;
+      if(priorGate===undefined)delete process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED;else process.env.KDOS_MPS_LIFECYCLE_WRITES_ENABLED=priorGate;
+    }
+    const [week]=await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(week).toBeDefined();
+    expect(await db.query('SELECT id FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id])).toHaveLength(10);
+    expect((await db.query('SELECT lifecycle_status FROM mps_base_plans WHERE id=$1',[base.id]))[0].lifecycle_status).toBe('LEGACY_RETAINED');
+    expect((await db.query('SELECT monthly_plan_id FROM mps_base_plans WHERE id=$1',[base.id]))[0].monthly_plan_id).toBeNull();
+    expect((await db.query('SELECT status,attempts FROM mps_reconciliation_outbox WHERE id=$1',[oldEvent.id]))[0]).toMatchObject({status:'FAILED',attempts:10});
   });
+
+  it('uses the same source-independent business admission for manual sync and remains idempotent',async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false,'SYN-MANUAL-UNLINKED',false);
+    await db.transaction(async m=>{
+      await m.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await m.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await m.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    const first=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());
+    const second=await sync.run(tenant,'base-to-weekly','MANUAL',user,'合成用户',randomUUID());
+    expect(first.status).toBe('SUCCESS');expect(second.status).toBe('SUCCESS');
+    const [week]=await db.query('SELECT id FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]);
+    expect(week).toBeDefined();
+    expect(await db.query('SELECT id FROM mps_weekly_process_plans WHERE tenant_id=$1 AND weekly_plan_id=$2',[tenant,week.id])).toHaveLength(10);
+    expect((await db.query('SELECT count(*)::int n FROM mps_weekly_plans WHERE tenant_id=$1 AND base_plan_id=$2',[tenant,base.id]))[0].n).toBe(1);
+  });
+
+  it('runs the bounded business-only recovery command without changing lineage or lifecycle',async()=>{
+    const {monthly,base}=await makePlan(10,'自制',false,'SYN-OP-UNLINKED',false);
+    await db.transaction(async m=>{
+      await m.query("SELECT set_config('app.mps_lifecycle_command','1',true),set_config('app.mps_lifecycle_enabled','1',true)");
+      await m.query("UPDATE mps_monthly_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[monthly.id]);
+      await m.query("UPDATE mps_base_plans SET lifecycle_status='LEGACY_RETAINED' WHERE id=$1",[base.id]);
+    });
+    const result=await sync.reconcileWeeklyBusinessReadiness(tenant,randomUUID(),10,1);
+    expect(result).toMatchObject({scanned:1,weeklyPlans:1,processTasks:10,status:'SUCCESS',passComplete:true,maxPagesReached:false});
+    expect((await db.query('SELECT lifecycle_status,monthly_plan_id FROM mps_base_plans WHERE id=$1',[base.id]))[0]).toMatchObject({lifecycle_status:'LEGACY_RETAINED',monthly_plan_id:null});
+  });
+
   it('cancels an unexecuted leaf without zeroing quantities and restores the same IDs and tasks',async()=>{
     const {week}=await makePlan();const structure=await tasks();
     await change(week.id,'CANCEL');await expect(report(week.id)).rejects.toBeDefined();

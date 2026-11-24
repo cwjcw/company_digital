@@ -217,7 +217,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     expect(sql.some((statement) => statement.includes("DELETE FROM mps_weekly_plans"))).toBe(false);
   });
 
-  it("KN-MPS-SYNC-001：执行副作用范围与主投影共用同一 admission，并按 tenant+base_plan_id 关联 base", async () => {
+  it("KN-MPS-SYNC-001：执行副作用范围共用业务准入，并按 tenant+base_plan_id 关联 base", async () => {
     const manager = { query: jest.fn().mockResolvedValue([]) };
     const dataSource = { transaction: jest.fn(async (work: (value: typeof manager) => Promise<unknown>) => work(manager)) };
     const service = new MasterPlanSyncService(dataSource as never);
@@ -227,17 +227,20 @@ describe("MasterPlanSyncService execution matrix", () => {
     const scope = statements.find((statement) => statement.startsWith("SELECT w.*,c."))!;
     const admission = weeklyAdmissionSql(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!, "base");
 
-    /* 唯一权威 admission：执行范围与主投影必须使用同一份 weeklyAdmissionSql 输出，而不是手写第二套准入条件。 */
+    /* 唯一权威业务准入：保留真实暂停/取消、数量、重复身份和路线保护；来源状态及月度关联不作前提。 */
     expect(upsert).toContain(admission);
     expect(scope).toContain(admission);
-    expect(scope).toContain("COALESCE(to_jsonb(base)->>'lifecycle_status','ACTIVE')='ACTIVE'");
-    expect(scope).toContain("lifecycle_month.id::text=to_jsonb(base)->>'monthly_plan_id'");
-    expect(scope).toContain("COALESCE(to_jsonb(lifecycle_month)->>'lifecycle_status','ACTIVE')='ACTIVE'");
-    /* Stable parent ID + tenant linkage is required; a business key never recreates missing ancestry. */
+    expect(scope).toContain("'ON_HOLD' THEN '基础计划已暂停'");
+    expect(scope).toContain("'CANCELLED' THEN '基础计划已取消'");
+    expect(scope).toContain("base.planned_quantity<0");
+    expect(scope).toContain("route.default_enabled=true");
+    expect(scope).not.toContain("lifecycle_month");
+    expect(scope).not.toContain("月度来源历史状态待核实");
+    /* 工序任务始终按稳定周计划ID关联；业务订单键仅用于识别真实重复计划或对应需求的暂停/取消。 */
     expect(scope).toContain("JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id");
-    /* 来源身份只看稳定 parent ID：WHERE 不得用订单号/品项/交期做匹配。 */
     const scopeWhere = scope.slice(scope.lastIndexOf("WHERE w.tenant_id=$1"));
-    expect(scopeWhere).not.toMatch(/order_number|item_code|delivery_number/);
+    expect(scopeWhere).toContain("source.order_number=base.order_number");
+    expect(scopeWhere).not.toContain("monthly_plan_id IS NULL");
     /* 越界反模式：不得再出现「只按 tenant 全表扫描周计划」（缺 base 关联/admission 的旧查询）。 */
     expect(scope).not.toMatch(/FROM mps_weekly_plans w LEFT JOIN mps_process_cycles/);
     expect(scope).not.toMatch(/WHERE w\.tenant_id=\$1$/);

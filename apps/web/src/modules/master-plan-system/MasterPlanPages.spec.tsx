@@ -524,6 +524,12 @@ describe("MasterPlanResourcePage base-plan weekly feedback", () => {
     expect(screen.getByText("同步提示：未维护工序周期")).toBeInTheDocument();
   });
 
+  it.each(["已具备条件，等待自动同步", "同步失败"])("renders the current weekly sync state %s", async state => {
+    mockBasePlans({ weeklyPlanState: state, weeklyPlanMissingFields: null, weeklyPlanGenerationIssue: state === "同步失败" ? "同步事务异常" : null });
+    renderPage("mps-base-plans");
+    expect(await screen.findByText(state, {}, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
   it("shows the manual base-to-weekly action only with sync update permission", async () => {
     mockBasePlans();
     renderPage("mps-base-plans");

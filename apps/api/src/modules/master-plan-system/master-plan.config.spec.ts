@@ -19,13 +19,16 @@ describe("master plan manual-entry configuration", () => {
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-process-plans")?.create).toBe(false);
   });
 
-  it("does not advertise a complete base plan as ready when lifecycle, source, or default route blocks generation", () => {
+  it("uses business lifecycle and route blockers, while legacy source state remains traceability only", () => {
     const columns = virtualColumns(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!);
     expect(columns.weeklyPlanState).toContain("生成受阻");
-    expect(columns.weeklyPlanState).toContain("基础计划历史来源待核实");
-    expect(columns.weeklyPlanGenerationIssue).toContain("基础计划历史来源待核实");
-    expect(columns.weeklyPlanGenerationIssue).toContain("月度来源历史状态待核实");
-    expect(columns.weeklyPlanGenerationIssue).toContain("没有有效默认工序路线");
+    expect(columns.weeklyPlanState).toContain("已具备条件，等待自动同步");
+    expect(columns.weeklyPlanState).toContain("同步失败");
+    expect(columns.weeklyPlanGenerationIssue).not.toContain("历史来源待核实");
+    expect(columns.weeklyPlanGenerationIssue).not.toContain("缺少有效月度来源");
+    expect(columns.weeklyPlanGenerationIssue).toContain("对应业务需求已暂停或取消");
+    expect(columns.weeklyPlanGenerationIssue).toContain("缺少事业部有效默认工序路线");
+    expect(columns.weeklyPlanGenerationIssue).toContain("计划数量不符合现行规则");
   });
 
   it("allows authorized deletion of allocations while keeping ERP source rows read-only", () => {

@@ -78,7 +78,7 @@ function FieldInput({ field, resource, organizations = [], users = [], weeklyPla
 }
 
 function display(value: unknown, field: TablePermissionFieldDefinition, row: any) {
-  if (field.key === "weeklyPlanState") return <Tag color={({ "待完善": "default", "已具备条件": "processing", "生成受阻": "error", "已进入周计划": "success" } as Record<string, string>)[String(value)]}>{value ? String(value) : "—"}</Tag>;
+  if (field.key === "weeklyPlanState") return <Tag color={({ "待完善": "default", "已具备条件，等待自动同步": "processing", "同步失败": "warning", "生成受阻": "error", "已进入周计划": "success" } as Record<string, string>)[String(value)]}>{value ? String(value) : "—"}</Tag>;
   if (field.key === "weeklyPlanMissingFields") return value ? `缺少：${String(value)}` : "—";
   if (field.key === "weeklyPlanGenerationIssue") return value ? <Tag color="error">同步提示：{String(value)}</Tag> : "—";
   if (field.type === "boolean") return <Tag color={value ? "success" : "default"}>{value ? "是" : "否"}</Tag>;
