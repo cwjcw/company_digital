@@ -576,6 +576,21 @@
 
 - 2026-11-21运行验收：受控CLI execution `1689` 成功，07:58:57–08:00:37（上海时间）；三来源完整读取及严格结果节点通过。工作流已发布激活，n8n healthz及启动注册日志已核查。盘点从21定义/16激活变为22/17，原21项nodes/connections/settings/active逐一一致。新增仓库定义1、新增启用n8n逻辑任务1；新增systemd Timer/cron/常驻服务/应用调度均0。此执行为手工验收，未冒充自然定时触发；下一周期2026-11-22 02:30。完整证据见受限outputs/abnormal_cost_orders_release/n8n-verification.json。
 
+## 非KDOS：异常费用周报（2026-11-23故障修复）
+
+- 归属：用户标注为非KDOS；本台账记录其运行事实，保持与 `WF-ABNORMAL-001` 每日02:30三ERP订单同步分离。
+- 权威调度：生产 n8n workflow `TT8raJ9ndXSOnTwb` / `异常费用_周五_8点`，每周五08:00，Asia/Shanghai；生产核查 active=true。调用既有 SSH 凭据 `本机SSH` → `/data/automation/code/work/MissLiu/unusual_expenses/main.py`，没有新增 Timer、cron 或服务。
+- 数据流：登录 OA 导出异常费用 Excel → 更新 `2026年度异常费用统计.xlsx` 趋势工作表及 history 备份 → 使用既有 `WeChatPusher` 发送摘要和附件。密钥仍在原工具包配置中，不进入仓库、命令或日志。
+- 故障证据：execution `1618`（2026-11-20 08:00 上海）n8n 外层记为 success，但 SSH 节点返回 `code=1`；Playwright/系统 Chrome 1.59 对 HTTP OA 地址执行内部 HTTPS 升级，随后 `ERR_BLOCKED_BY_CLIENT`，导出、汇总、发送均未开始。最近一次已记录完整成功为 execution `1492`（2026-11-13）。
+- 修复：外部脚本 `download_expense_report.py` 默认固定使用 Playwright 自带 Chromium，不再失败后回退到受主机代理/HTTPS 策略影响的系统 Chrome/Edge；浏览器缺失时明确失败并提示安装。SSH 后新增 Code 节点 `校验 Python 退出码`，缺失或非零 `code` 立即抛错，n8n execution 记录为失败，不再误报成功。Playwright Chromium 147 已安装至运行账户缓存；未改 OA、Excel 汇总规则、收件人或发送逻辑。
+- 运行身份：SSH 凭据仍为既有 `本机SSH`；原脚本可访问权限为 Jerry 用户的 `.seeyon_auth/browser_profile`（仅其所有者可进入），Playwright 缓存安装到同一运行账户 `/home/Jerry/.cache/ms-playwright`。未读取或输出凭据内容。
+- 并发/幂等/补偿：当前脚本未发现显式 `flock` / 任务级互斥或企业微信发送去重键；周报更新可能改写汇总工作簿并发送多个消息/附件。失败后的受控补偿是检查最近一次 n8n 节点结果及工作簿/`history/` 后，经授权手工重跑；不得因 n8n 外层成功标记直接重跑，以免重复发送。任务没有独立自动重试/失败通知配置；n8n execution 和标准输出作为现有故障证据。
+- 备份/回滚：生产更新前保存发布版 workflow JSON 和 n8n SQLite 数据库快照至权限受限路径 `/data/work/n8n/backups/abnormal-expense-friday-20261123/`。回滚可由管理员恢复 workflow 快照，或从 DB 快照恢复；改回旧浏览器选择逻辑会恢复原 Chrome 失败风险。脚本代码变更位于外部仓库，`git diff` 可反向补丁。
+- 发布验证：2026-11-23 Python 编译通过；隔离临时 Playwright profile 以 Chromium 147 导航 OA 登录入口返回 HTTP 200 并识别登录表单（未登录/下载/发送）。生产 workflow 发布后核对 active=true、周五08:00配置、SSH命令未变、新退出码节点存在；n8n 容器重启后 `/healthz` 成功，运行中 execution 为0。用户授权手动执行前没有触发生产报告发送。
+- 用户随后授权 2026-11-23 立即运行一次。n8n CLI `execute` 在启动 execution 前退出，DB 未新增执行；随后按同一 SSH 命令直接运行 `uv run python main.py` 一次，退出码0。OA 登录/下载成功，汇总工作簿保存，微信文本与3个附件发送接口均返回成功。受限日志：`/tmp/abnormal-expense-manual-run-20261123.log`。
+- 首次手工运行暴露补跑滞后：原工作簿日期到2026-11-06，脚本仅新增WK46 / 2026-11-13列；日志明确有32条源数据晚于2026-11-13而未写入。首次发送技术上成功但数据不完整；当时未自动二次运行或再发更正，等待用户确认。
+- 用户进一步明确要求跑截至11月20日的版本后，使用已导出的 `异常单查询.xlsx` 单独运行 `uv run python update_weekly_trend.py` 一次；退出码0。工作簿新增WK47 / 2026-11-20，独立读取确认 `每周数据趋势!AP1` 日期为2026-11-20；日志仅有1条源数据晚于该截止日，按要求未纳入。更正后的微信文本与3个附件发送接口成功；目标文件及两份history备份已更新。受限日志：`/tmp/abnormal-expense-catchup-20261120.log`。本次补齐完成，今后自然执行继续沿用周五08:00工作流。
+
 ## MPS 基础计划自动生成周计划恢复（2026-11-24）
 
 - 权威调度保持现有 `base-to-weekly` 配置和 `MasterPlanSyncService.runDue`（Nest `@Interval(60000)` 检查、配置周期30分钟）及 reconciliation/outbox；不新增 Timer、cron、n8n 或第二个应用调度入口。
