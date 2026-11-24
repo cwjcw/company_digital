@@ -107,7 +107,7 @@ describe("MasterPlanSyncService execution matrix", () => {
     const query=jest.fn().mockResolvedValue([]),manager={query};
     const service=new MasterPlanSyncService({} as never);
     const result=await (service as any).ensureExecutionRows(manager,{...weekly("自制"),has_process_snapshot:false,has_process_execution:true,has_execution:true},"KAINAN",null,"tester",true);
-    expect(result).toEqual({initialized:false,taskCount:0,blocked:true});
+    expect(result).toEqual({initialized:false,taskCount:0,blocked:true,protected:true});
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0]![0])).toContain("PROCESS_SNAPSHOT_PROTECTED");
     expect(query.mock.calls.some(([sql])=>String(sql).startsWith("INSERT INTO mps_weekly_process_plans"))).toBe(false);

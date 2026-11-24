@@ -1,4 +1,3 @@
-import { assertMpsLifecycleSyncReady } from "./master-plan.lifecycle.service";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { createHash, randomUUID } from "node:crypto";
@@ -638,7 +637,10 @@ export class MasterPlanSyncService {
     const targetManufacturing=this.dictionaryCopySql(basePlan,"manufacturingMethod","manufacturing_method","base.manufacturing_method","weekly.manufacturing_method").replace(/ AS manufacturing_method$/,'');
     return this.syncTransaction(transaction, async (manager): Promise<SyncOutcome> => {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
-      await assertMpsLifecycleSyncReady(manager,tenantId,['mps-monthly-plans','mps-base-plans','mps-weekly-plans']);
+      // Lifecycle is a row-level admission rule. A paused/cancelled/unknown row must
+      // remain excluded, but cannot abort this tenant scan for unrelated ACTIVE plans.
+      // Existing database guards fence a concurrent lifecycle transition at the written row.
+      const requestedBasePlanIds=basePlanIds;
       let scopeAdmissionMetrics: Record<string, number> = {};
       // Legacy rows are individually quarantined until their source has been
       // confirmed through the lifecycle command. They must not block an
@@ -660,11 +662,17 @@ export class MasterPlanSyncService {
         const eligibleIds=eligibleRows.map(row=>String(row.id));
         scopeAdmissionMetrics={selected_batches:basePlanIds.length,eligible_batches:eligibleIds.length,
           waiting_admission_batches:foundRows.length-eligibleIds.length,missing_batches:basePlanIds.length-foundRows.length};
-        if(!eligibleIds.length)return {count:0,metrics:scopeAdmissionMetrics};
         // Process eligible IDs only. Incomplete/deleted IDs remain visible as
         // pending/missing in the base-plan query and cannot block the rest.
         basePlanIds=eligibleIds;
       }
+      const lifecycleBlockedRows=await manager.query(`SELECT count(*)::int AS count FROM mps_base_plans base
+        WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[]))
+          AND ${admission} AND NOT (${lifecycleAdmission})`,[tenantId,requestedBasePlanIds]);
+      const weeklyLifecycleBlockedRows=await manager.query(`SELECT count(*)::int AS count FROM mps_weekly_plans weekly
+        JOIN mps_base_plans base ON base.tenant_id=weekly.tenant_id AND base.id=weekly.base_plan_id
+        WHERE weekly.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[]))
+          AND COALESCE(to_jsonb(weekly)->>'lifecycle_status','ACTIVE')<>'ACTIVE'`,[tenantId,requestedBasePlanIds]);
       // Filter already-executed weekly rows before the upsert. Migration119's
       // trigger remains authoritative; this prevents one protected row from
       // rolling back unrelated eligible rows in the same tenant-wide sync.
@@ -673,6 +681,7 @@ export class MasterPlanSyncService {
         FROM mps_base_plans base JOIN mps_weekly_plans weekly
           ON weekly.tenant_id=base.tenant_id AND weekly.base_plan_id=base.id
         WHERE base.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${lifecycleAdmission}
+          AND COALESCE(to_jsonb(weekly)->>'lifecycle_status','ACTIVE')='ACTIVE'
           AND ${admission} AND mps_weekly_has_execution(weekly.tenant_id,weekly.id)
           AND ((NOT EXISTS(SELECT 1 FROM mps_weekly_process_plans p WHERE p.tenant_id=weekly.tenant_id AND p.weekly_plan_id=weekly.id)
                 AND (${weeklyHasProcessExecutionSql("weekly")} OR EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=weekly.tenant_id
@@ -706,6 +715,7 @@ export class MasterPlanSyncService {
         ON CONFLICT ON CONSTRAINT uq_mps_weekly_base DO UPDATE SET division_id=excluded.division_id,customer_code=excluded.customer_code,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,order_date=excluded.order_date,latest_customer_due_date=excluded.latest_customer_due_date,latest_review_due_date=excluded.latest_review_due_date,model_age=excluded.model_age,image_refs=excluded.image_refs,product_attribute=excluded.product_attribute,surface_nature=excluded.surface_nature,planned_quantity=excluded.planned_quantity,pending_quantity=greatest(excluded.planned_quantity-mps_weekly_plans.allocated_inbound_quantity,0),manufacturing_method=excluded.manufacturing_method,updated_at=now(),updated_by=$3,version=mps_weekly_plans.version+1
         WHERE (mps_weekly_plans.division_id,mps_weekly_plans.customer_code,mps_weekly_plans.order_number,mps_weekly_plans.item_code,mps_weekly_plans.item_name,mps_weekly_plans.delivery_number,mps_weekly_plans.order_date,mps_weekly_plans.latest_customer_due_date,mps_weekly_plans.latest_review_due_date,mps_weekly_plans.model_age,mps_weekly_plans.image_refs,mps_weekly_plans.product_attribute,mps_weekly_plans.surface_nature,mps_weekly_plans.planned_quantity,mps_weekly_plans.manufacturing_method)
           IS DISTINCT FROM (excluded.division_id,excluded.customer_code,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,excluded.order_date,excluded.latest_customer_due_date,excluded.latest_review_due_date,excluded.model_age,excluded.image_refs,excluded.product_attribute,excluded.surface_nature,excluded.planned_quantity,excluded.manufacturing_method)
+          AND COALESCE(to_jsonb(mps_weekly_plans)->>'lifecycle_status','ACTIVE')='ACTIVE'
         RETURNING id`, [tenantId, userId, updatedBy, basePlanIds,protectedBaseIds]);
       /* 已有快照不重写；原外协周计划转为内部生产且从未初始化时，可首次建立空缺工艺。 */
       const weeklyRows = await manager.query(`SELECT w.*,c.technical_days,(w.created_at=transaction_timestamp()) AS created_in_this_sync
@@ -715,19 +725,27 @@ export class MasterPlanSyncService {
         FROM mps_weekly_plans w JOIN mps_base_plans base ON base.tenant_id=w.tenant_id AND base.id=w.base_plan_id
         LEFT JOIN mps_process_cycles c ON c.tenant_id=w.tenant_id AND c.item_code=w.item_code
         WHERE w.tenant_id=$1 AND ($2::uuid[] IS NULL OR base.id=ANY($2::uuid[])) AND ${lifecycleAdmission} AND ${admission}
+          AND COALESCE(to_jsonb(w)->>'lifecycle_status','ACTIVE')='ACTIVE'
           AND NOT(base.id=ANY($3::uuid[]))`, [tenantId,basePlanIds,protectedBaseIds]);
-      let initializedSnapshots = 0, initializedTasks = 0, protectedSnapshots = protectedExisting.length+manualQuantity.length;
+      let initializedSnapshots = 0, initializedTasks = 0, executionRowsProtected = 0, routeBlockedWeeks = 0;
+      const protectedSnapshots = protectedExisting.length+manualQuantity.length;
       for (const weekly of weeklyRows) {
         const result = await this.ensureExecutionRows(manager, weekly, tenantId, userId, updatedBy, weekly.created_in_this_sync === true);
         if (result.initialized) initializedSnapshots++;
         initializedTasks += result.taskCount;
-        if(result.blocked)protectedSnapshots++;
+        if("routeBlocked" in result && result.routeBlocked)routeBlockedWeeks++;
+        if("protected" in result && result.protected)executionRowsProtected++;
       }
       const weeklyChanges = this.changedCount(rows);
-      return { count: weeklyChanges + initializedTasks, status:protectedSnapshots?'BLOCKED':undefined, metrics: {
+      // Row-level protections and missing routes are expected business outcomes, not a failed tenant scan.
+      // Returning BLOCKED here made the runner mark every scheduled run FAILED and permanently parked
+      // otherwise recoverable outbox events, even though eligible rows had been reconciled safely.
+      return { count: weeklyChanges + initializedTasks, metrics: {
         ...scopeAdmissionMetrics,
         weekly_plans_changed: weeklyChanges, process_snapshots_initialized: initializedSnapshots, process_tasks_initialized: initializedTasks,
-        process_snapshots_protected:protectedSnapshots,weekly_manual_quantity_protected:manualQuantity.length
+        process_snapshots_protected:protectedSnapshots+executionRowsProtected,weekly_manual_quantity_protected:manualQuantity.length,
+        process_routes_blocked:routeBlockedWeeks,lifecycle_or_source_blocked:Number(lifecycleBlockedRows[0]?.count??0),
+        weekly_lifecycle_blocked:Number(weeklyLifecycleBlockedRows[0]?.count??0)
       } };
     });
   }
@@ -785,7 +803,7 @@ export class MasterPlanSyncService {
       throw new ConflictException('LIFECYCLE_BLOCKED: 暂停或取消周计划不能生成或刷新执行任务');
     if(weekly.has_process_snapshot!==true&&weekly.has_process_execution===true){
       await this.recordProcessSnapshotProtected(manager,tenantId,weekly.id,weekly.order_number,weekly.item_code,userId);
-      return { initialized:false,taskCount:0,blocked:true };
+      return { initialized:false,taskCount:0,blocked:true,protected:true };
     }
     let mode = initializeProcessConfig ? "INITIALIZE" : null;
     if (!mode) {
@@ -841,7 +859,7 @@ export class MasterPlanSyncService {
     if (outsourcingEnabled) await manager.query(`INSERT INTO mps_outsourcing_reports(tenant_id,weekly_plan_id,division_id,order_number,item_code,item_name,delivery_number,execution_enabled,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8::uuid,$9) ON CONFLICT(tenant_id,weekly_plan_id) DO UPDATE SET division_id=excluded.division_id,order_number=excluded.order_number,item_code=excluded.item_code,item_name=excluded.item_name,delivery_number=excluded.delivery_number,execution_enabled=true,updated_at=now(),updated_by=$9,version=mps_outsourcing_reports.version+1 WHERE (mps_outsourcing_reports.division_id,mps_outsourcing_reports.order_number,mps_outsourcing_reports.item_code,mps_outsourcing_reports.item_name,mps_outsourcing_reports.delivery_number,mps_outsourcing_reports.execution_enabled) IS DISTINCT FROM (excluded.division_id,excluded.order_number,excluded.item_code,excluded.item_name,excluded.delivery_number,true)`, [tenantId, weekly.id, weekly.division_id, weekly.order_number, weekly.item_code, weekly.item_name, weekly.delivery_number, userId, updatedBy]);
     if (!outsourcingEnabled) await manager.query(`UPDATE mps_outsourcing_reports SET execution_enabled=false,updated_at=now(),updated_by=$3,version=version+1 WHERE tenant_id=$1 AND weekly_plan_id=$2 AND execution_enabled=true`, [tenantId, weekly.id, updatedBy]);
     await this.rollupWeeklyProcesses(manager, weekly.id, tenantId, updatedBy);
-    return { initialized, taskCount, blocked:routeBlocked };
+    return { initialized, taskCount, blocked:routeBlocked, ...(routeBlocked?{routeBlocked:true}:{}) };
   }
 
   private async recordDefaultProcessConfigMissing(manager: EntityManager, tenantId: string, weekly: any, userId: string | null) {

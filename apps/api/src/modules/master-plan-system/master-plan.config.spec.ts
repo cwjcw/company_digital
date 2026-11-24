@@ -1,5 +1,5 @@
 import { tablePermissionFieldsFor } from "@kdos/contracts";
-import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, weeklyAdmissionMissingFields, weeklyAdmissionMissingSql, weeklyAdmissionSql } from "./master-plan.config";
+import { fieldsFor, MASTER_PLAN_RESOURCE_MAP, virtualColumns, weeklyAdmissionMissingFields, weeklyAdmissionMissingSql, weeklyAdmissionSql } from "./master-plan.config";
 
 const snake = (value: string) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 
@@ -17,6 +17,15 @@ describe("master plan manual-entry configuration", () => {
   it("only allows base-to-weekly to create division weekly plans", () => {
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-plans")?.create).toBe(false);
     expect(MASTER_PLAN_RESOURCE_MAP.get("mps-weekly-process-plans")?.create).toBe(false);
+  });
+
+  it("does not advertise a complete base plan as ready when lifecycle, source, or default route blocks generation", () => {
+    const columns = virtualColumns(MASTER_PLAN_RESOURCE_MAP.get("mps-base-plans")!);
+    expect(columns.weeklyPlanState).toContain("生成受阻");
+    expect(columns.weeklyPlanState).toContain("基础计划历史来源待核实");
+    expect(columns.weeklyPlanGenerationIssue).toContain("基础计划历史来源待核实");
+    expect(columns.weeklyPlanGenerationIssue).toContain("月度来源历史状态待核实");
+    expect(columns.weeklyPlanGenerationIssue).toContain("没有有效默认工序路线");
   });
 
   it("allows authorized deletion of allocations while keeping ERP source rows read-only", () => {

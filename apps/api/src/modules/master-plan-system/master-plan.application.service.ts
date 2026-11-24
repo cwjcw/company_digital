@@ -29,7 +29,7 @@ const RECONCILIATION_JOBS: Partial<Record<string, string[]>> = {
   "mps-customer-divisions": ["plan-projections"], "mps-order-allocations": ["plan-projections"],
   "mps-monthly-plans": ["shipping-to-base", "base-to-weekly"], "mps-shipping-plans": [],
   "mps-base-plans": ["base-to-weekly"], "mps-weekly-plans": ["base-to-weekly"], "mps-process-cycles": ["base-to-weekly"],
-  "mps-weekly-process-plans": ["execution-rollup"],
+  "mps-weekly-process-plans": ["execution-rollup"], "mps-division-process-configs": ["base-to-weekly"],
   "mps-material-reports": ["execution-rollup"], "mps-outsourcing-reports": ["execution-rollup"], "mps-process-reports": ["execution-rollup"]
 };
 

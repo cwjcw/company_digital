@@ -176,17 +176,23 @@ export function virtualColumns(resource: MasterPlanResource) {
   if (resource.code === "mps-base-plans") {
     const admission = weeklyAdmissionSql(resource, "record");
     const missing = weeklyAdmissionMissingSql(resource, "record");
+    const generationBlock = weeklyGenerationBlockReasonSql(resource, "record");
     const linkedWeekly = "EXISTS(SELECT 1 FROM mps_weekly_plans weekly WHERE weekly.tenant_id=record.tenant_id AND weekly.base_plan_id=record.id)";
     Object.assign(output, {
-      weeklyPlanState: `(CASE WHEN ${linkedWeekly} THEN '已进入周计划' WHEN ${admission} THEN '已具备条件' ELSE '待完善' END)`,
+      weeklyPlanState: `(CASE WHEN ${linkedWeekly} THEN '已进入周计划' WHEN NOT (${admission}) THEN '待完善' WHEN ${generationBlock} IS NOT NULL THEN '生成受阻' ELSE '已具备条件' END)`,
       weeklyPlanMissingFields: `(CASE WHEN ${linkedWeekly} OR ${admission} THEN NULL ELSE ${missing} END)`,
-      weeklyPlanGenerationIssue: `(SELECT event.last_error FROM mps_reconciliation_outbox event
+      weeklyPlanGenerationIssue: `(CASE WHEN ${admission} THEN COALESCE(CASE WHEN NOT ${linkedWeekly} THEN ${generationBlock} END,(
+        SELECT event.last_error FROM mps_reconciliation_outbox event
         WHERE event.tenant_id=record.tenant_id AND event.resource='mps-base-plans' AND event.record_id=record.id
           AND event.sync_key='base-to-weekly' AND event.status='FAILED' AND event.last_error IS NOT NULL
           AND NOT EXISTS(SELECT 1 FROM mps_weekly_plans generated
             WHERE generated.tenant_id=record.tenant_id AND generated.base_plan_id=record.id
               AND generated.created_at>event.updated_at)
-        ORDER BY event.created_at DESC LIMIT 1)`
+          AND NOT EXISTS(SELECT 1 FROM mps_reconciliation_outbox newer
+            WHERE newer.tenant_id=event.tenant_id AND newer.resource=event.resource AND newer.record_id=event.record_id
+              AND newer.sync_key=event.sync_key AND newer.created_at>event.created_at AND newer.status='SUCCESS')
+        ORDER BY event.created_at DESC LIMIT 1
+      )) ELSE NULL END)`
     });
   }
   if (resource.code === "mps-monthly-plans") {
@@ -316,6 +322,27 @@ export function weeklyAdmissionMissingSql(resource: MasterPlanResource, tableAli
 
 export function weeklyAdmissionMissingFields(resource: MasterPlanResource, values: Record<string, unknown>) {
   return (resource.weeklyAdmissionRequiredFields ?? []).filter((field) => values[field] == null || String(values[field]).trim() === "");
+}
+
+/** Business blockers that follow field completeness but must pass before a new weekly plan can be generated. */
+export function weeklyGenerationBlockReasonSql(resource: MasterPlanResource, tableAlias = "record") {
+  if (resource.code !== "mps-base-plans") return "NULL::text";
+  const lifecycle = `COALESCE(to_jsonb(${tableAlias})->>'lifecycle_status','LEGACY_RETAINED')`;
+  const monthlyId = `NULLIF(to_jsonb(${tableAlias})->>'monthly_plan_id','')`;
+  const monthly = `mps_monthly_plans source WHERE source.tenant_id=${tableAlias}.tenant_id AND source.id::text=${monthlyId}`;
+  return `(CASE
+    WHEN ${lifecycle}='ON_HOLD' THEN '基础计划已暂停'
+    WHEN ${lifecycle}='CANCELLED' THEN '基础计划已取消'
+    WHEN ${lifecycle}<>'ACTIVE' THEN '基础计划历史来源待核实'
+    WHEN ${monthlyId} IS NULL OR NOT EXISTS(SELECT 1 FROM ${monthly}) THEN '基础计划缺少有效月度来源'
+    WHEN EXISTS(SELECT 1 FROM ${monthly} AND COALESCE(to_jsonb(source)->>'lifecycle_status','LEGACY_RETAINED')='ON_HOLD') THEN '月度来源已暂停'
+    WHEN EXISTS(SELECT 1 FROM ${monthly} AND COALESCE(to_jsonb(source)->>'lifecycle_status','LEGACY_RETAINED')='CANCELLED') THEN '月度来源已取消'
+    WHEN EXISTS(SELECT 1 FROM ${monthly} AND COALESCE(to_jsonb(source)->>'lifecycle_status','LEGACY_RETAINED')<>'ACTIVE') THEN '月度来源历史状态待核实'
+    WHEN ${tableAlias}.manufacturing_method IN ('自制','自制+外协') AND NOT EXISTS(
+      SELECT 1 FROM mps_division_process_configs route WHERE route.tenant_id=${tableAlias}.tenant_id
+        AND route.division_id=${tableAlias}.division_id AND route.default_enabled=true
+    ) THEN '承接事业部没有有效默认工序路线'
+    ELSE NULL END)`;
 }
 
 /** Read model only. Command column mappings must keep physical snapshot columns. */
