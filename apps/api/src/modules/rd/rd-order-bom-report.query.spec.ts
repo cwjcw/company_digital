@@ -62,6 +62,9 @@ describe('R&D order BOM report query source', () => {
     expect(source.exportDisplayValue({key:'customerDueDate'},null)).toBe('');
     expect(source.exportDisplayValue({key:'bomWaitingDays'},12)).toBeUndefined();
     expect(source.printDisplayValue({key:'bomApprovalDate'},'2026-11-03 10:00:00')).toBe('2026-11-03');
+    expect(source.exportDisplayValue({key:'initialBomStatus'},null)).toBe('');
+    expect(source.printDisplayValue({key:'initialBomStatus'},null)).toBe('');
+    expect(source.exportDisplayValue({key:'initialBomStatus'},'Y')).toBeUndefined();
   });
 
   it('preserves the last usable index on sync failure and returns a visible freshness warning',async()=>{

@@ -24,6 +24,7 @@ const formatShanghaiDate = (date: Date) => {
   return `${part('year')}-${part('month')}-${part('day')}`;
 };
 function reportDateDisplay(field: { key: string }, value: unknown): string | undefined {
+  if (field.key === 'initialBomStatus' && (value == null || value === '')) return '';
   if (!dateKeys.has(field.key)) return undefined;
   if (value == null || value === '') return '';
   const raw = String(value).trim();
