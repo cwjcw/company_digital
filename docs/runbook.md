@@ -156,7 +156,15 @@ Knowledge 页面支持在线文章和文件两种内容模式，原件、工作�
 
 ### Deploying clean linked source to the existing runtime
 
-When the original checkout has unrelated work, use a clean linked Git worktree. From that source worktree run `KDOS_RUNTIME_ROOT=/absolute/path/to/original/checkout ./scripts/deploy.sh all` (or `check`). The script verifies both directories share the same Git repository, checks the source is clean, and supplies only an ephemeral build-context override. The runtime .env, project identity, PostgreSQL bind mount and private uploads stay at the original checkout. No secrets are copied. Verify the resolved persistent mounts before first use; back up and migrate with the existing runtime environment. The version reported is the clean source commit. Roll back by deploying a retained source commit/image against the same runtime path. Order allocation notification operations are described in `docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md`.
+Develop in `/data/automation/code/work/PMC/knweb` on `main` and preserve unrelated changes; do not create or switch branches/worktrees without explicit user authorization. The following deployment capability applies only to an already authorized source worktree. From that source worktree run `KDOS_RUNTIME_ROOT=/absolute/path/to/original/checkout ./scripts/deploy.sh all` (or `check`). The script verifies both directories share the same Git repository, checks the source is clean, and supplies only an ephemeral build-context override. The runtime .env, project identity, PostgreSQL bind mount and private uploads stay at the original checkout. No secrets are copied. Verify the resolved persistent mounts before first use; back up and migrate with the existing runtime environment. The version reported is the clean source commit. Roll back by deploying a retained source commit/image against the same runtime path. Order allocation notification operations are described in `docs/operations/PMC_ORDER_ALLOCATION_NOTIFICATIONS.md`.
+
+## 主计划生成缺失排查
+
+以[主计划 Skill](../.agents/skills/kdos-master-plan-system/SKILL.md)及[基础计划规范](../docskill/主计划/订单执行/事业部基础计划.md)为准。按订单分配 → 月度 → 基础 → 周计划 → 工序任务 → 报工查询独立核对实际记录，不能只复用自动扫描候选或只看 ACTIVE 行。基础计划满足五项业务字段、数量和所需事业部默认路线要求且无真实业务阻塞，即应由现有事件/outbox及30分钟 base-to-weekly 自动同步生成，不需人工点同步。
+
+历史来源待核实、月度外键缺失/月度非ACTIVE、LEGACY_RETAINED、KDOS分配未审核、ERP原始行ID缺失、生命周期写入开关关闭、仅ERP入库及旧outbox终态都不是单独阻塞理由；不得将来源恢复工具或批量激活作为修复前置。真实暂停、取消、失效、归属和执行冲突仍保护。缺事业部默认路线应明确报告，不推断或回退通用十工序。
+
+发现共性问题覆盖全部受影响事业部，复用既有 Application/同步服务安全恢复，不直接插入派生行，不更改数量/归属/默认配置/锁定路线或ERP及报工事实。以实际周计划、应有工序任务和满足报工条件时的查询结果验收；outbox SUCCESS、待处理0、ACTIVE异常0、任务成功、API健康或单元测试通过均不能单独证明链路完整。当前成功不被失效历史错误覆盖。
 
 ## 主计划综合大屏 REV1
 

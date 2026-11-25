@@ -173,7 +173,7 @@
 
 ### Current source policy — 2026-10-30 user-confirmed revision (PRODUCTION_DEPLOYED; Migration 112 applied 2026-11-02)
 
-- `plan-projections` reads active (`archived_at IS NULL`), confirmed manual/import, **已审核** KDOS allocations. Demand is PostgreSQL numeric SUM(allocated_quantity) per tenant/order/item/division, including repeated physical rows/batches once. Unapproved/revoked/archived rows are excluded. No ERP existence, quantity ceiling, date watermark, original order-line ID, or customer ownership mapping controls plan admission. Enabled receiving organizations and consistent customer/ownership remain validated; conflicts produce stable per-key diagnostics.
+- `plan-projections` reads active (`archived_at IS NULL`), positive-quantity manual/import KDOS allocations with valid order/item/division identity. Demand is PostgreSQL numeric SUM(allocated_quantity) per tenant/order/item/division, including repeated physical rows/batches once. Archived/non-positive/invalid-identity rows are excluded; KDOS approval/revocation alone is not a plan-admission gate. No ERP existence, quantity ceiling, date watermark, original order-line ID, or customer ownership mapping controls plan admission. Enabled receiving organizations and consistent customer/ownership remain validated; conflicts produce stable per-key diagnostics.
 - Monthly uniqueness adds division to tenant/order/item (migration112); the current model has no separate persisted month column, and calendar filters retain physical allocation order_date. Existing archived-parent/manual ownership conflicts retain their IDs, data and diagnostics. Only active matching demand and derived progress refresh; no source-absence deletion, historical invalidation or manual-date/attribute overwrite. New unknown customer due dates/review dates/source account/type/amount are NULL; expected shipping dates never substitute for customer due dates.
 - Group demand sums eligible allocation items across divisions; order completion retains the average item-completion rule, combining each item's divisions first. Verified inbound facts remain independent of demand. The existing inbound task uses the same active allocation totals and retains historical-only summary repair. Missing/ambiguous incoming facts do not become zero receipts.
 - Existing `erp-orders` continues its independent canonical ERP → mps_erp_order_lines collection, source/status/date rules, retained rows and normal writes. Those rules now govern ERP detail collection only. Existing `shipping-to-base` continues monthly → base at its own entrypoint with three-way manual protection/shared delivery-code allocator; legitimate split divisions receive independent batches. No new source columns, scheduler, Timer, cron, n8n workflow or consumer.
@@ -428,7 +428,7 @@
 
 - 不新增或迁移调度，原6项任务、60秒检查器、30分钟配置及n8n/systemd/cron保持。未运行生产同步、补偿或Migration，未部署API/Web。
 - Migration120追加三类计划生命周期、索引和事实/执行守卫，118/119/120仅专用network=none PG18验收。默认关闭 `KDOS_MPS_LIFECYCLE_WRITES_ENABLED`；月度/基础计划取消及取消后恢复另有不可绕过的消费者未完备门禁。
-- plan-projections/shipping-to-base/base-to-weekly和工单生成遇非ACTIVE整项明确失败（含LEGACY_RETAINED）；同事务租户上下文和行共享锁防预检查竞态，1A保留真实FAILED。execution-rollup继续维护历史派生状态，不新建执行事实。暂停/取消及上游状态由DB与待办查询共同阻断新的普通生产执行。
+- 历史1C方案曾对非ACTIVE整项失败（含LEGACY_RETAINED）；该生成门禁已取消，不得作为现行规则复用。现行基础到周计划逐条判断真实业务条件，同事务租户/并发保护及真实失败证据保留。execution-rollup继续维护历史派生状态，不新建执行事实。暂停/取消及上游状态由DB与待办查询共同阻断新的普通生产执行。
 - 历史迁移为LEGACY_RETAINED会阻断生成任务，**不得直接生产发布或仅打开开关**；须后续审核来源及过渡策略、完成下游消费者/旧Worker退出、备份和另行授权。不得自动批量确认或重放历史事件。
 - 生产652/634/3组人工变更、11/1同步异常及25/3历史报工均未修改；受控预览/权限/审计和隔离结果见联动设计第16节及主计划专用进度首节。
 
@@ -591,17 +591,17 @@
 - 首次手工运行暴露补跑滞后：原工作簿日期到2026-11-06，脚本仅新增WK46 / 2026-11-13列；日志明确有32条源数据晚于2026-11-13而未写入。首次发送技术上成功但数据不完整；当时未自动二次运行或再发更正，等待用户确认。
 - 用户进一步明确要求跑截至11月20日的版本后，使用已导出的 `异常单查询.xlsx` 单独运行 `uv run python update_weekly_trend.py` 一次；退出码0。工作簿新增WK47 / 2026-11-20，独立读取确认 `每周数据趋势!AP1` 日期为2026-11-20；日志仅有1条源数据晚于该截止日，按要求未纳入。更正后的微信文本与3个附件发送接口成功；目标文件及两份history备份已更新。受限日志：`/tmp/abnormal-expense-catchup-20261120.log`。本次补齐完成，今后自然执行继续沿用周五08:00工作流。
 
-## MPS 基础计划自动生成周计划恢复（2026-11-24）
+## MPS 基础计划自动生成周计划恢复（2026-11-24 历史阶段记录）
 
 - 权威调度保持现有 `base-to-weekly` 配置和 `MasterPlanSyncService.runDue`（Nest `@Interval(60000)` 检查、配置周期30分钟）及 reconciliation/outbox；不新增 Timer、cron、n8n 或第二个应用调度入口。
-- 故障定位：定时、手动与事件入口都进入相同同步器；整租户内合法的已报工/手工数量保护行或缺路线使整体结果返回 `BLOCKED`，导致配置/执行日志误报整轮 `FAILED`，Outbox 事件到达最大重试后停放，自动补偿不再拾取。修复将暂停/取消/来源未知逐行隔离，合法保护和真实路线阻塞记为行级指标/业务阻塞，允许同轮其他有效行继续；真实事务异常仍失败并保留原因重试。事业部默认工序配置变更入既有 outbox 触发同一重试链。
-- 读模型“已具备条件”现同时检查基础/月度 ACTIVE、有效月度来源、必填字段和内部生产事业部有效默认路线；显示已生成错误只保留最新失败，成功后清除旧错误。没有有效默认路线时明确阻塞，禁止回退通用工序。
-- 生产扫描快照：6185条基础计划无周计划；6169条至少缺一项准入字段；16条字段完整但生命周期为 `LEGACY_RETAINED`；其中14条与ERP入库暂存事实关联而保留，2条通过严格预览。4条现存周计划缺工序任务：2条历史保留，2条活跃无执行事实/路线锁且事业部有有效默认路线，可由原同步器安全初始化。写入使用既有生命周期 Application Service 与 base-to-weekly，不直接插库；执行/最终计数、备份及生产SHA在本任务进度/报告补记。
-- 生产outbox历史态扫描：171条旧生命周期失败为10次重试上限、68条因全轮 `BLOCKED` 停放；修复后全租户周期扫描负责重建当前有效状态，历史暂停/取消/来源不明事件仍按业务规则阻塞，不批量激活。
+- 故障定位：定时、手动与事件入口都进入相同同步器；整租户内合法的已报工/手工数量保护行或缺路线使整体结果返回 `BLOCKED`，导致配置/执行日志误报整轮 `FAILED`，Outbox 事件到达最大重试后停放，自动补偿不再拾取。当时修复将暂停/取消/来源未知逐行隔离（其中来源未知隔离现已取消），合法保护和真实路线阻塞记为行级指标/业务阻塞，允许同轮其他有效行继续；真实事务异常仍失败并保留原因重试。事业部默认工序配置变更入既有 outbox 触发同一重试链。
+- 读模型现按五项必填字段、数量、真实暂停/取消/失效及生产方式所需默认路线判断；不要求基础/月度 ACTIVE 或先确认历史来源。仅显示独立未解决的当前失败，失效历史错误不覆盖成功。没有有效默认路线时明确阻塞，禁止回退通用工序。
+- 该次修复前的历史扫描快照（不是现行准入清单）：6185条基础计划无周计划；6169条至少缺一项准入字段；16条字段完整但生命周期为 `LEGACY_RETAINED`；其中14条与ERP入库暂存事实关联而保留，2条通过严格预览。4条现存周计划缺工序任务：2条历史保留，2条活跃无执行事实/路线锁且事业部有有效默认路线，可由原同步器安全初始化。写入使用既有生命周期 Application Service 与 base-to-weekly，不直接插库；执行/最终计数、备份及生产SHA在本任务进度/报告补记。
+- 生产outbox历史态扫描：171条旧生命周期失败为10次重试上限、68条因全轮 `BLOCKED` 停放；修复后全租户周期扫描负责重建当前有效状态，真实暂停/取消继续隔离；来源不明本身不再阻塞当前合格基础计划，历史失败保留审计，不批量激活。
 - 新增自动入口/完整生命周期隔离PG18回归；生产部署前记录备份，生产自动/手动/幂等与工序报工查询验收完成后更新本条记录。本任务不改变ERP、BOM、入库或报工事实。
 - 发布验收：备份 `four_department_tracker_20261124_091525.backup` SHA256 `86c1aa2639491cef7bf67bda2e4f4a6515db9c18a9a0a6c8fab9529bc2e55d63`，另有KDOS DB及uploads归档；API/Web/Worker部署并健康，部署检查确认API/Web SHA与当时本地main HEAD一致，无Migration。严格生命周期工具预览2条、0阻塞，执行后恢复monthly 2、base 2、weekly批次1；核心订单查询到唯一周计划及10条匹配事业部工序。生产全租户手动同步SUCCESS，12条执行事实保护隔离为指标。报工查询服务对核心周计划返回10条任务。隔离PG18 `runDue` 自动生成链路37/37，定向单测54/54；API/Web类型检查、API lint、构建通过。恢复后缺周计划6183条（6165字段不全、18条历史保留且全部关联入库暂存事实）；没有活动且准入完成的未生成周计划。4条无工序快照均为不应生成内部任务的中心外购/外协业务行。GitHub main仍落后本地9个无关提交，本次未推送以避免夹带。
 
-- 2026-11-24后续历史来源修复沿用同一权威入口：`runDue` 每分钟检查、`base-to-weekly` 原30分钟配置和既有 outbox；不增加调度器。恢复候选字段条件直接复用 `weeklyAdmissionSql`，未满足周计划字段准入的历史记录保持原生命周期，字段补齐后自动进入周期扫描。受信系统消费者分页核验订单/品项/事业部/客户、当前有效来源和分配/月份/基础计划数量一致后，只将 `LEGACY_RETAINED` 恢复为 `ACTIVE` 并写审计；暂停/取消、来源/客户冲突、数量差异、已有周计划及生产执行事实仍隔离。来源候选每页一次批量复用；补齐命令仅同步本页已恢复基础计划。真实ERP入库单独保留，不单独阻止首次周计划及工序快照。人工 `KDOS_MPS_LIFECYCLE_WRITES_ENABLED` 不整体开启；系统路径使用代码内受限恢复能力。关联 outbox 对仍被生命周期或缺少默认路线阻塞的记录记录可重试 `BLOCKED`，来源恢复后按正常幂等周计划/工序逻辑核验。详细恢复数量、生产验收和SHA另记于本任务进度/最终报告。
+- 2026-11-24中间版本的来源恢复措施（已被5f90e58简化，不是现行生成前置流程）沿用同一权威入口：`runDue` 每分钟检查、`base-to-weekly` 原30分钟配置和既有 outbox；不增加调度器。恢复候选字段条件直接复用 `weeklyAdmissionSql`，未满足周计划字段准入的历史记录保持原生命周期，字段补齐后自动进入周期扫描。受信系统消费者分页核验订单/品项/事业部/客户、当前有效来源和分配/月份/基础计划数量一致后，只将 `LEGACY_RETAINED` 恢复为 `ACTIVE` 并写审计；暂停/取消、来源/客户冲突、数量差异、已有周计划及生产执行事实仍隔离。来源候选每页一次批量复用；补齐命令仅同步本页已恢复基础计划。真实ERP入库单独保留，不单独阻止首次周计划及工序快照。人工 `KDOS_MPS_LIFECYCLE_WRITES_ENABLED` 不整体开启；系统路径使用代码内受限恢复能力。关联 outbox 对仍被生命周期或缺少默认路线阻塞的记录记录可重试 `BLOCKED`，来源恢复后按正常幂等周计划/工序逻辑核验。详细恢复数量、生产验收和SHA另记于本任务进度/最终报告。
 
 ## MPS 周计划基础业务准入（2026-11-24 用户规则更新）
 
@@ -610,5 +610,5 @@
 - 仍保护基础计划/周计划/对应业务需求的真实暂停或取消、无效业务状态、负数量、重复计划（基础计划既有唯一业务键约束）、无默认路线、现有执行事实、锁定路线、手工周计划数量及报工/入库事实。仅 ERP 入库不是工序执行事实；新周计划可走受限首次工序初始化，不能覆盖已有任务/报工。
 - 生成规则通过同一 `weeklyGenerationBlockReasonSql` 与 `weeklyAdmissionSql` 供读模型、定时、手工、事件和批次恢复共用。已有每分钟 `runDue` 检查、已启用30分钟 `base-to-weekly` 和原 reconciliation/outbox 不变；定时同步仍执行全量基础计划准入扫描，故历史 SUCCESS/FAILED/BLOCKED 事件不能阻止符合当前业务条件的记录重新同步。
 - 查询状态区分“待完善”“生成受阻”“已具备条件，等待自动同步”“同步失败”“已进入周计划”；仅显示最新未被后续事件/成功生成覆盖的错误。周计划缺少项及提示以当前业务规则为准。
-- 独立的一次性业务修复命令 `pnpm --filter @tracker/api mps:reconcile-weekly-readiness -- <batchUuid> [maxPages] [pageSize]`，只按当前业务准入 keyset 扫描每页最多25条，调用现有 `MasterPlanSyncService` Runner/Application transaction 创建周计划和默认工序，不核实或改写历史来源/生命周期；支持有界续跑，不创建定时任务。当前 production KAINAN 只读初扫：10,268 条基础计划，涉及6个实际 `division_id`；14条准入完整但缺周计划（均为 `LEGACY_RETAINED`、来源状态待核实、无月度关联门槛但业务字段和默认路线完整），6,199条缺周计划字段，4,055条已有周计划及应有工序。另有4条旧周计划无工序均为外购/外协，不补内部任务；没有内部周计划缺工序项。目标业务订单显示为 `2303-2026C1101-B024`，14个品号，全部准入字段齐全、路线完整、当前无周计划。
-- 此节为2026-11-24最新业务生成规则，覆盖本文件较早历史快照中把来源确认描述为准入要求的表述；后续来源修复仍可用于追溯，但不得再成为首次周计划准入条件。生产恢复数、最终 SHA、备份和健康验收见本任务进度及发布记录。
+- 独立的一次性业务修复命令 `pnpm --filter @tracker/api mps:reconcile-weekly-readiness -- <batchUuid> [maxPages] [pageSize]`，只按当前业务准入 keyset 扫描每页最多25条，调用现有 `MasterPlanSyncService` Runner/Application transaction 创建周计划和默认工序，不核实或改写历史来源/生命周期；支持有界续跑，不创建定时任务。2026-11-24该版本恢复前 production KAINAN 只读初扫：10,268 条基础计划，涉及6个实际 `division_id`；14条准入完整但缺周计划（均为 `LEGACY_RETAINED`、来源状态待核实、无月度关联门槛但业务字段和默认路线完整），6,199条缺周计划字段，4,055条已有周计划及应有工序。另有4条旧周计划无工序均为外购/外协，不补内部任务；没有内部周计划缺工序项。目标业务订单显示为 `2303-2026C1101-B024`，14个品号当时字段齐全、路线完整却无周计划；该数字是修复前快照，不代表当前仍缺失。
+- 此节为生产基线 `5f90e589f845defe2c02591072f0d285a3981e73` 的业务生成规则；完整开发约束、13项回归及历史案例见[主计划 Skill](../../.agents/skills/kdos-master-plan-system/SKILL.md)。覆盖本文件较早历史快照中把来源确认描述为准入要求的表述；后续来源修复仍可用于追溯，但不得再成为首次周计划准入条件。生产恢复数、最终 SHA、备份和健康验收见本任务进度及发布记录。

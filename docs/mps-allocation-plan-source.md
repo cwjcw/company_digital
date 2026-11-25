@@ -42,7 +42,7 @@ KDOS_ALLOCATION_PLAN_TEST_SOCKET="$PWD/test/allocation_plan_source/pg_socket" \
 
 ## 待确认后上线的最短步骤（本轮未执行）
 
-1. 在本任务 commit 的干净 linked worktree 中复用现有运行目录；保留无关未提交文件。评估本次非破坏性约束调整，不默认新增整库备份。
+1. 在正式 `/data/automation/code/work/PMC/knweb` 的 `main` 工作区核对候选提交及现有运行目录；保留无关未提交文件，未经用户授权不创建分支或 worktree。评估本次非破坏性约束调整，不默认新增整库备份。
 2. 复用原 `deploy.sh` 的构建函数构建新镜像，短暂停止 API 防止旧三列 ON CONFLICT 与新约束并行，然后用新镜像执行 TypeORM `migration:show/run`（只应新增112，不 seed）。
 3. 原 `deploy.sh all` → `deploy.sh check` → `healthcheck.sh`，核对源码/Web/API SHA；脚本门禁与健康检查不改动。
 4. 经原授权手动入口执行 `plan-projections`，核对日志/诊断/分配总量/历史保护，再验证原 `shipping-to-base` 和真实生产页面。配置启用及 30 分钟周期原样保持；ERP继续同步。未知字段仍待人工完善。
