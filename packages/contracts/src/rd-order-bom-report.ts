@@ -33,8 +33,8 @@ export const rdOrderBomReportFields: TablePermissionFieldDefinition[] = [
   { key: "itemName", label: "品名", type: "text", editable: false },
   { key: "orderDate", label: "下单日期", type: "date", editable: false },
   { key: "allocationDate", label: "分配日期", type: "date", editable: false },
-  { key: "initialBomStatus", label: "下单时BOM状态", type: "dictionary", editable: false, options: [{ value: "Y", label: "Y" }, { value: "N", label: "N" }] },
   { key: "customerDueDate", label: "客户交期", type: "date", editable: false },
+  { key: "initialBomStatus", label: "下单时BOM状态", type: "dictionary", editable: false, options: [{ value: "Y", label: "Y" }, { value: "N", label: "N" }] },
   { key: "bomStatus", label: "BOM状态", type: "dictionary", editable: false, options: [
     { value: "Y", label: "Y" }, { value: "N", label: "N" }
   ] },
