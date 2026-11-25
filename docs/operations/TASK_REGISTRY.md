@@ -612,3 +612,13 @@
 - 查询状态区分“待完善”“生成受阻”“已具备条件，等待自动同步”“同步失败”“已进入周计划”；仅显示最新未被后续事件/成功生成覆盖的错误。周计划缺少项及提示以当前业务规则为准。
 - 独立的一次性业务修复命令 `pnpm --filter @tracker/api mps:reconcile-weekly-readiness -- <batchUuid> [maxPages] [pageSize]`，只按当前业务准入 keyset 扫描每页最多25条，调用现有 `MasterPlanSyncService` Runner/Application transaction 创建周计划和默认工序，不核实或改写历史来源/生命周期；支持有界续跑，不创建定时任务。2026-11-24该版本恢复前 production KAINAN 只读初扫：10,268 条基础计划，涉及6个实际 `division_id`；14条准入完整但缺周计划（均为 `LEGACY_RETAINED`、来源状态待核实、无月度关联门槛但业务字段和默认路线完整），6,199条缺周计划字段，4,055条已有周计划及应有工序。另有4条旧周计划无工序均为外购/外协，不补内部任务；没有内部周计划缺工序项。目标业务订单显示为 `2303-2026C1101-B024`，14个品号当时字段齐全、路线完整却无周计划；该数字是修复前快照，不代表当前仍缺失。
 - 此节为生产基线 `5f90e589f845defe2c02591072f0d285a3981e73` 的业务生成规则；完整开发约束、13项回归及历史案例见[主计划 Skill](../../.agents/skills/kdos-master-plan-system/SKILL.md)。覆盖本文件较早历史快照中把来源确认描述为准入要求的表述；后续来源修复仍可用于追溯，但不得再成为首次周计划准入条件。生产恢复数、最终 SHA、备份和健康验收见本任务进度及发布记录。
+
+## RD-004：订单分配BOM状态观察（2026-11-25）
+
+- 归属研发中心，上海自然日。Migration138独立状态/历史/采集边界，订单分配AFTER事件只登记持久pending/首次实际分配日，不改主表业务值；所有旧记录initial_capture_eligible=false，正式ACTIVATE以后INSERT才属于新单。
+- 不新增n8n/cron/Timer/Interval。原RD-BOM-INDEX-001每日E10增量和RD-002双T+串行对账CLI成功后调用RdAllocationBomService.drain；既有MasterPlanSyncService.runDue每60秒消费本租户最多500条pending，承担新单及时采集/失败重试，不改变六项计划任务配置/计划生成规则。
+- 同步索引成功提交同事务触发pending，进程崩溃后仍可重试。T+CLI整批持有tenant会话advisory gate，并在开批将两源持久标RUNNING；消费者同key事务try-lock，阻止半批次与中断后虚假失效。状态事务REPEATABLE READ/行锁，状态version及历史唯一键幂等；失败事务原子回滚，下一分钟重试。
+- 任一新鲜SUCCESS来源存在有效头可Y；N/负向变化要求三源完整新鲜SUCCESS。失败/过期/未初始化/进行中保留旧状态锁值、登记last_error和尝试时间；界面保留原来源异常机制，本任务不新增消息推送。新单采集失败initial保持空，恢复记真实时间及延迟秒。
+- 补偿：原两CLI或rd-allocation-bom-cli PROCESS重放同一队列。回滚旧API/Web，必要时受控关闭capture.enabled，保留全部追踪/历史/索引；迁移forward-only，不批量回填历史initial。
+- 仓库新增调度定义0；生产原22个n8n流程/17个active，BOM两流程均active、上海01:00增量及01:20双源，最近自然执行成功。原系统/用户Timer、cron、常驻服务仅只读盘点，未增改停；宿主摘要outputs/rd_bom_waiting_release/schedulers-before.txt。该总数为n8n运行态，不冒充所有主机在线任务总数。
+- 发布门禁与执行证明：测试、备份、白名单Migration138、API/Web、ACTIVATE和Chrome分别核验；启用事实以rd_allocation_bom_capture为权威。实际边界/历史数/生产SHA/备份和验收见本次最终报告 `outputs/rd_bom_waiting_release/FINAL_REPORT.md`；不以代码存在推断已采集或新增生产单已验证。

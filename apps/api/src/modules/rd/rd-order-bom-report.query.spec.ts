@@ -29,7 +29,7 @@ describe('R&D order BOM report query source', () => {
     expect(e10.read).toHaveBeenCalledWith(['ITEM-1','ITEM-1']);
     expect(result.total).toBe(2);
     expect(result.rows[0]).toMatchObject({orderNumber:'SO-1',itemCode:'ITEM-1',itemName:'品项',orderDate:'2026-11-01 00:00:00',customerDueDate:'2026-12-01 00:00:00',bomStatus:'HAS_BOM'});
-    expect(result.rows[0].bomWaitingDays).toBe(2);
+    expect(result.rows[0].bomWaitingDays).toBeNull(); // no reliable persisted completion: never derive new waits from ERP approval
     expect(result).not.toHaveProperty('matchIssue');
   });
 

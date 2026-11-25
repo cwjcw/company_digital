@@ -241,3 +241,11 @@ The user has now authorized this production release, the necessary Migration and
 相关测试：contracts `table-print-layout.spec.ts`，Web `table-print*.spec.tsx`，API `table-print.service|table-export.presentation|audit-actor-print`，Chrome `e2e/configurable-print.spec.ts`；现有导出与表格行为回归保持。发布仍执行原backup、待运行migration检查、deploy.sh all/check、健康/SHA验证，不改变调度。无新增Migration；回退保留数据库与个人偏好（旧版忽略kdos-print-v1），从保留的旧干净源码执行原部署流程。个人默认仅当前浏览器，保存失败需提示；字段权限改变后偏好过滤，空字段不得打印。验收报告：`outputs/KDOS_CONFIGURABLE_PRINT_ACCEPTANCE.md`。
 
 Docker Compose 5.6的Bake调用遗漏network.host授权时，deploy.sh仅在Compose 5使用其原样生成的Bake目标，保留commit build arg及本地镜像加载；仅当目标声明build.network=host时显式传network.host，并限制读取为当前发布源码目录。仍保留原干净工作区、持久路径、健康和Repository/Web/API SHA全部检查，不改变容器运行网络或增加security.insecure。Compose其他主版本继续原build命令。临时目标文件权限600，构建后删除。
+
+### 订单BOM分配日等待与初始采集（Migration138）
+
+先验证/备份，使用白名单`node dist/migrate-rd-allocation-bom.js`，不运行无关pending迁移（尤其120）。迁移持久登记所有旧分配身份，历史日期仅用创建/首次分配审计；无证据空白。发布API/Web后以原受控租户运行`RD_BOM_INDEX_TENANT_ID=KAINAN node dist/rd-allocation-bom-cli.js ACTIVATE`，记录activated_at/historical_count；该命令幂等，不能重置边界。启用前的新记录仍为历史，之后新INSERT才采集initial，旧单永不补齐。
+
+来源异常时PROCESS非0/DEFERRED并保持pending；不能为了清空队列伪造成功、初始化N或做E10 FULL。既有分钟消费者和来源成功CLI重试，同步异常检查last_error/last_attempt_at及原三源日志。跨日N仅查询计算，不逐日写库；连续Y不重锁；所有完成轮次保留历史。T+整批开始持久标两源RUNNING并持会话gate，中断保留不能确认N的证据，原每日串行对账/同CLI重跑可恢复。
+
+线上只读验收：历史initial非空=0，边界/历史数稳定，12列/权限/筛选/数字排序/Excel/打印/旧偏好、两汇总平均锁值一致，实际Chrome会话与健康/SHA分别记录。回滚旧镜像并保留Migration138和所有状态/历史，若需停止采集仅关闭本功能capture.enabled，不停原ERP调度；down禁止删表。

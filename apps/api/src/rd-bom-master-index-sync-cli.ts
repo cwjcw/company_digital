@@ -1,3 +1,5 @@
+import { RdAllocationBomService } from './modules/rd/rd-allocation-bom.service';
+import { UnifiedBomQueryService } from './modules/rd/unified-bom.query.service';
 import 'reflect-metadata';
 import dataSource from './data-source';
 import { RdBomMasterIndexSyncService } from './modules/rd/rd-bom-master-index-sync.service';
@@ -12,6 +14,7 @@ async function main() {
   try {
     const service = new RdBomMasterIndexSyncService(dataSource, new NotificationService(dataSource));
     const result = mode === 'HEALTH' ? await service.health(tenantId) : await service.sync(tenantId, mode);
+    if (mode!=='HEALTH') await new RdAllocationBomService(dataSource,new UnifiedBomQueryService(dataSource)).drain(tenantId);
     // Only safe counters and versions are emitted; no source business rows.
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally { await dataSource.destroy(); }

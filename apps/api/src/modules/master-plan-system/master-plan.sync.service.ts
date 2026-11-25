@@ -1,3 +1,4 @@
+import { RdAllocationBomService } from '../rd/rd-allocation-bom.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { createHash, randomUUID } from "node:crypto";
@@ -36,7 +37,7 @@ export class MasterPlanSyncService {
   private readonly logger = new Logger(MasterPlanSyncService.name);
   private readonly runner: MasterPlanSyncRunner;
   private dueRunning=false;
-  constructor(private readonly dataSource: DataSource, @Optional() private readonly exceptionNotifications?: MasterPlanExceptionNotificationService) {
+  constructor(private readonly dataSource: DataSource, @Optional() private readonly exceptionNotifications?: MasterPlanExceptionNotificationService, @Optional() private readonly allocationBom?: RdAllocationBomService) {
     this.runner = new MasterPlanSyncRunner(dataSource,
       (manager, key, tenant, actor, name, scope, trustedService) => this.execute(key, tenant, actor, actor, scope, name, manager, trustedService), MASTER_PLAN_SYSTEM_USER_ID,
       300_000, exceptionNotifications ? (manager, tenant, event) => "exception_type" in event
@@ -345,6 +346,7 @@ export class MasterPlanSyncService {
     if(this.dueRunning)return;this.dueRunning=true;
     try{
     const tenantId = process.env.KDOS_DEFAULT_TENANT_CODE ?? "KAINAN";
+    try{await this.allocationBom?.processPending(tenantId);}catch{this.logger.warn("研发BOM状态采集未完成，持久事件保留待重试");}
     try{await this.scanConsistencyPage(tenantId);}catch{this.logger.warn("一致性扫描未完成，保留游标并继续原同步任务");}
     let configs: Array<{ sync_key: string }>;
     try { configs = await this.runner.dueConfigurations(tenantId); }

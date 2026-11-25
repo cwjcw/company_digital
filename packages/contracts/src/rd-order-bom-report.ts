@@ -8,9 +8,9 @@ export type RdOrderBomView = typeof rdOrderBomViews[number];
 
 export const rdOrderBomDetailColumns = [
   ["divisionId", "承接事业部"], ["orderNumber", "订单号"], ["itemCode", "品号"], ["itemName", "品名"],
-  ["orderDate", "下单日期"], ["customerDueDate", "客户交期"], ["bomStatus", "BOM状态"],
-  ["bomSources", "BOM来源系统"], ["sourceModifiedTimes", "来源候选更新时间"], ["sourceSyncStatus", "同步状态"], ["bomSourceNote", "来源说明"],
-  ["bomApprovalDate", "BOM审核日期"], ["bomWaitingDays", "BOM等待天数"], ["currentWaitingDays", "当前等待天数"]
+  ["orderDate", "下单日期"], ["allocationDate", "分配日期"], ["customerDueDate", "客户交期"],
+  ["initialBomStatus", "下单时BOM状态"], ["bomStatus", "BOM状态"], ["bomSources", "BOM来源系统"],
+  ["bomApprovalDate", "BOM审核日期"], ["bomWaitingDays", "BOM等待天数"]
 ] as const;
 
 export const rdOrderBomOrderColumns = [
@@ -32,6 +32,8 @@ export const rdOrderBomReportFields: TablePermissionFieldDefinition[] = [
   { key: "itemCode", label: "品号", type: "text", editable: false },
   { key: "itemName", label: "品名", type: "text", editable: false },
   { key: "orderDate", label: "下单日期", type: "date", editable: false },
+  { key: "allocationDate", label: "分配日期", type: "date", editable: false },
+  { key: "initialBomStatus", label: "下单时BOM状态", type: "dictionary", editable: false, options: [{ value: "Y", label: "Y" }, { value: "N", label: "N" }] },
   { key: "customerDueDate", label: "客户交期", type: "date", editable: false },
   { key: "bomStatus", label: "BOM状态", type: "dictionary", editable: false, options: [
     { value: "Y", label: "Y" }, { value: "N", label: "N" }

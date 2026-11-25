@@ -1,3 +1,4 @@
+import { allocationBomWaiting } from './rd-allocation-bom-state';
 import { BadRequestException, ForbiddenException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -10,11 +11,11 @@ import { RdOrderBomReader } from '../../integrations/e10/rd-order-bom.reader';
 import { UnifiedBomQueryService } from './unified-bom.query.service';
 import { createBomMatcher, orderBomStatus, waitingDays, type E10BomBundle, type LocalBomHead } from './rd-order-bom-report.calculator';
 
-type Allocation = { id: string; tenantId: string; divisionId: string | null; divisionName: string | null; orderNumber: string; itemCode: string; itemName: string | null; orderDate: string | null; expectedShippingDate: string | null };
+type Allocation = { id: string; tenantId: string; divisionId: string | null; divisionName: string | null; orderNumber: string; itemCode: string; itemName: string | null; orderDate: string | null; expectedShippingDate: string | null; allocationDate?:string|null; initialBomStatus?:string|null; trackedBomStatus?:'Y'|'N'|null; lockedWaitingDays?:number|null };
 type ReportRow = Record<string, unknown> & { id: string; tenantId?: string; divisionId: string | null; orderNumber?: string; itemCode?: string; bomStatus?: string | null; bomVerified?: boolean; bomWaitingDays?: number | null; currentWaitingDays?: number | null };
 const viewColumns = { detail: rdOrderBomDetailColumns, orders: rdOrderBomOrderColumns, divisions: rdOrderBomDivisionColumns } as const;
 const allocationColumns = { id: 'id', createdBy: 'created_by', divisionId: 'division_id', orderNumber: 'order_number', itemCode: 'item_code', itemName: 'item_name', orderDate: 'order_date', customerDueDate: 'expected_shipping_date' };
-const dateKeys = new Set(['orderDate', 'customerDueDate', 'bomApprovalDate']);
+const dateKeys = new Set(['allocationDate','orderDate', 'customerDueDate', 'bomApprovalDate']);
 const shanghaiToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const shanghaiDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
 const formatShanghaiDate = (date: Date) => {
@@ -50,6 +51,7 @@ function testRule(row: ReportRow, rule: any): boolean {
   if (operator === 'is_not_empty') return !empty;
   if (operator === 'in' || operator === 'not_in') { const hit = valuesOf(rule).map(String).includes(String(value ?? '')); return operator === 'in' ? hit : !hit; }
   if (operator === 'between') return !empty && compare(value,rule.min) >= 0 && compare(value,rule.max) <= 0;
+  if (empty && ['gt','gte','lt','lte'].includes(operator)) return false;
   if (operator === 'dynamic') throw new BadRequestException('BOM报表日期筛选不支持动态范围，请指定明确日期');
   const expected = String(rule.value ?? ''), actual = String(value ?? '');
   switch (operator) {
@@ -140,6 +142,10 @@ export class RdOrderBomReportQueryService {
         const columns = Object.fromEntries(fields.map(field => [field.key, allocationColumns[field.key as keyof typeof allocationColumns] ?? field.key]));
         return { fields, columns };
       },
+      printVariant: context => {
+        const fields=viewFields(this.view(context.view));
+        return {fields,columns:Object.fromEntries(fields.map(field=>[field.key,allocationColumns[field.key as keyof typeof allocationColumns]??field.key]))};
+      },
       exportDisplayValue: reportDateDisplay,
       printDisplayValue: reportDateDisplay,
       // listRows already resolves the department display alias. Do not send
@@ -214,8 +220,11 @@ export class RdOrderBomReportQueryService {
       await manager.query("SELECT set_config('app.tenant_id',$1,true)", [query.actor.tenantId]);
       return manager.query(`SELECT record.id::text id,record.tenant_id "tenantId",record.division_id::text "divisionId",unit.name "divisionName",
         record.order_number "orderNumber",record.item_code "itemCode",record.item_name "itemName",
-        record.order_date::text "orderDate",record.expected_shipping_date::text "expectedShippingDate"
+        record.order_date::text "orderDate",record.expected_shipping_date::text "expectedShippingDate",
+        tracking.allocation_date::text "allocationDate",tracking.initial_bom_status "initialBomStatus",
+        tracking.current_bom_status "trackedBomStatus",tracking.locked_waiting_days "lockedWaitingDays"
         FROM mps_order_allocations record LEFT JOIN organization_units unit ON unit.id=record.division_id
+        LEFT JOIN rd_allocation_bom_state tracking ON tracking.tenant_id=record.tenant_id AND tracking.allocation_id=record.id
         WHERE ${where.join(' AND ')} ORDER BY record.order_date DESC NULLS LAST,record.order_number,record.item_code,record.id LIMIT 20001`, params);
     }) as Allocation[];
     if (allocations.length > 20000) throw new BadRequestException('当前BOM报表记录较多，请先按日期、事业部或订单筛选后查询');
@@ -250,9 +259,9 @@ export class RdOrderBomReportQueryService {
       if ('bomVerified' in matched && !matched.bomVerified && matched.status==='NO_BOM') waits.current=null;
       const orderDay = row.orderDate?.slice(0,10) ?? null;
       return { id: row.id, divisionId: row.divisionId, divisionName: row.divisionName ?? '待匹配', orderNumber: row.orderNumber,
-        itemCode: row.itemCode, itemName: row.itemName, orderDate: textDateTime(orderDay), customerDueDate: textDateTime(row.expectedShippingDate?.slice(0,10) ?? null),
+        itemCode: row.itemCode, itemName: row.itemName, allocationDate:row.allocationDate??null,initialBomStatus:row.initialBomStatus??null,orderDate: textDateTime(orderDay), customerDueDate: textDateTime(row.expectedShippingDate?.slice(0,10) ?? null),
         ...(unified.enabled ? { ...matched, sourceSyncStatus:unified.syncText } : {}),
-        bomStatus: unified.enabled ? (matched.status==='HAS_BOM'?'Y':'N') : matched.status, bomApprovalDate: matched.approvalDate, bomWaitingDays: waits.bom,
+        bomStatus: row.trackedBomStatus ?? (unified.enabled ? (matched.status==='HAS_BOM'?'Y':'N') : matched.status), bomApprovalDate: matched.approvalDate, bomWaitingDays: allocationBomWaiting({current_bom_status:row.trackedBomStatus??null,allocation_date:row.allocationDate??null,locked_waiting_days:row.lockedWaitingDays??null},today),
         currentWaitingDays: waits.current };
     });
     const rows = view === 'detail' ? details : view === 'orders' ? this.aggregateOrders(details) : this.aggregateDivisions(details);

@@ -8,8 +8,8 @@ describe('R&D order BOM report contract', () => {
     expect(tablePrintResourceCapabilityOf(rdOrderBomReportResource).status).toBe('PRINTABLE');
     expect(tablePermissionFieldsFor(rdOrderBomReportResource).some(field => field.editable)).toBe(false);
   });
-  it('keeps ten detail columns and separate summary contracts with allocation due date', () => {
-    expect(rdOrderBomDetailColumns.map(column => column[0])).toEqual(['divisionId','orderNumber','itemCode','itemName','orderDate','customerDueDate','bomStatus','bomSources','sourceModifiedTimes','sourceSyncStatus','bomSourceNote','bomApprovalDate','bomWaitingDays','currentWaitingDays']);
+  it('keeps twelve detail columns and separate summary contracts with allocation due date', () => {
+    expect(rdOrderBomDetailColumns.map(column => column[0])).toEqual(['divisionId','orderNumber','itemCode','itemName','orderDate','allocationDate','customerDueDate','initialBomStatus','bomStatus','bomSources','bomApprovalDate','bomWaitingDays']);
     expect(rdOrderBomOrderColumns.map(column => column[0])).toHaveLength(10);
     expect(rdOrderBomDivisionColumns.map(column => column[0])).toHaveLength(9);
     expect(tablePermissionFieldsFor('mps-order-allocations').map(field => field.key)).not.toContain('customerDueDate');
