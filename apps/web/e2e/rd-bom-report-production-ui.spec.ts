@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { rdOrderBomDetailColumns } from '@kdos/contracts';
 
 const username = process.env.KNP_E2E_USERNAME ?? 'admin';
 const password = process.env.KNP_E2E_PASSWORD ?? '';
@@ -18,7 +19,7 @@ test('production R&D BOM report dates, alignment, tabs and duplicate heading', a
   await expect(page.getByRole('heading', { name: 'BOM报表' })).toBeVisible();
   await expect(page.getByText('订单BOM报表', { exact: true })).toHaveCount(0);
   const views = [
-    ['订单BOM明细', ['下单日期', '客户交期', 'BOM审核日期']],
+    ['订单BOM明细', ['下单日期', '分配日期', '客户交期', 'BOM审核日期']],
     ['订单BOM汇总', ['下单日期']],
     ['事业部BOM统计', []]
   ] as const;
@@ -37,11 +38,14 @@ test('production R&D BOM report dates, alignment, tabs and duplicate heading', a
     expect(headerAlignment.every(item => item.cellAlign === 'center' && item.labelAlign === 'center' && item.centerOffset < 2)).toBe(true);
     expect(await table.locator('tbody td').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).textAlign === 'center'))).toBe(true);
     const headers = await table.locator('thead th').allTextContents();
-    expect(headers.some(header=>header.includes('同步状态'))).toBe(true);
+    expect(headers.some(header=>header.includes('同步状态'))).toBe(tab !== '订单BOM明细');
     if (tab === '订单BOM明细') {
       expect(headers.some(header=>header.includes('BOM来源系统'))).toBe(true);
-      expect(headers.some(header=>header.includes('来源候选更新时间'))).toBe(true);
-      const statusIndex=headers.findIndex(header=>header.includes('BOM状态'));
+      expect(headers.map(header=>header.trim()).filter(header=>header && header!=='序号')).toEqual(rdOrderBomDetailColumns.map(([,label])=>label));
+      const initialIndex=headers.findIndex(header=>header.trim()==='下单时BOM状态');
+      const initialValues=await table.locator(`tbody tr td:nth-child(${initialIndex+1})`).allTextContents();
+      expect(initialValues.every(value=>['','Y','N'].includes(value.trim()))).toBe(true);
+      const statusIndex=headers.findIndex(header=>header.trim()==='BOM状态');
       const statuses=await table.locator(`tbody tr td:nth-child(${statusIndex+1})`).allTextContents();
       expect(statuses.length).toBeGreaterThan(0);
       expect(statuses.every(value=>['Y','N'].includes(value.trim()))).toBe(true);
