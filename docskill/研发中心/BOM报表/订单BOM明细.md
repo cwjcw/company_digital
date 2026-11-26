@@ -26,7 +26,7 @@ Application Command消费pending：复用MasterPlanSyncService现有60秒检查�
 |下单时BOM状态 initialBomStatus|state.initial_bom_status，新单首次有效观察写一次|字典Y/N，可空；绿Y红N，历史空白|read；实际是首次分配报表同步观察，不回溯下单日；无编辑|
 |BOM状态 bomStatus|state.current_bom_status，成功同步Application观察|字典Y/N，绿Y红N；无法核验保留旧可靠值|read；无其他字典值|
 |BOM来源系统 bomSources|三源全部有效头来源集合，查询动态|文本E10/科加智能/凯南智能，注册顺序顿号连接，无有效头空|read；不自动仲裁来源|
-|BOM审核日期 bomApprovalDate|唯一有效BOM原ERP审核时间|日期YYYY-MM-DD，多头/不可靠/1900哨兵为空|read；不用于等待计算|
+|BOM审核日期 bomApprovalDate|所有有效BOM头原ERP审核时间中的最新可靠时间|日期YYYY-MM-DD；忽略空值、不可靠值及1900哨兵日期；均无可靠值时为空|read；多来源/多版本取最新审核时间；不用于等待计算|
 |BOM等待天数 bomWaitingDays|state锁值或上海今日动态|数字0位；N=max(0,上海今日-分配日)，Y=locked_waiting_days；无可靠日/锁值空|read；支持数值筛选排序，0不等于空|
 
 来源候选更新时间sourceModifiedTimes、同步状态sourceSyncStatus、来源说明bomSourceNote、当前等待天数currentWaitingDays从明细列/候选/筛选/排序/导出/打印目录移除；后台计算/源字段/冲突分析不删。两汇总保留sourceSyncStatus列。旧个人DISPLAY/PRINT配置按现行字段裁剪，非法过滤/排序字段返回400，不产生列或白屏。

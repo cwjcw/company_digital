@@ -20,7 +20,7 @@ describe('Three-source existing report views',()=>{
  it('uses local exact-code snapshots for T+ only, with Y/N and no live E10 prerequisite',async()=>{
   const result=await list('detail');expect(result.total).toBe(4);
   expect(result.rows[0]).toMatchObject({itemCode:'TPLUS-ONLY',bomStatus:'Y',bomSources:'科加智能',bomWaitingDays:1});
-  expect(result.rows[2]).toMatchObject({itemCode:'MULTI',bomStatus:'Y',bomSources:'E10、凯南智能',bomApprovalDate:null,bomWaitingDays:null});
+  expect(result.rows[2]).toMatchObject({itemCode:'MULTI',bomStatus:'Y',bomSources:'E10、凯南智能',bomApprovalDate:'2026-11-05 12:00:00',bomWaitingDays:null});
   expect(result.rows[3]).toMatchObject({bomStatus:'N'});expect(e10.read).not.toHaveBeenCalled();
  });
  it('deduplicates both sources and duplicate allocations consistently across all views',async()=>{

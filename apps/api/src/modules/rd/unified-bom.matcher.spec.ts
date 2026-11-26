@@ -13,11 +13,11 @@ describe('Unified exact-code BOM existence',()=>{
     expect(createUnifiedBomMatcher([head('tplus-kejia','1',{approved:false}),head('tplus-kainan','2',{disabled:true})],true)('CODE').status).toBe('NO_BOM');
     expect(createUnifiedBomMatcher([head('tplus-kejia')],true)('CODE')).toMatchObject({status:'HAS_BOM',bomSources:'科加智能'});
   });
-  it('keeps all sources and versions but refuses to invent one approval date or use simulated latest',()=>{
-    const rows=[head('e10-main'),head('tplus-kejia','2',{modifiedAt:'2026-11-03 12:00:00'})];
-    expect(createUnifiedBomMatcher(rows,true)('CODE')).toMatchObject({status:'HAS_BOM',approvalDate:null,bomSources:'E10、科加智能'});
+  it('keeps all sources and versions and uses the latest reliable approval date',()=>{
+    const rows=[head('e10-main'),head('tplus-kejia','2',{modifiedAt:'2026-11-03 12:00:00',auditedAt:'2026-11-03 12:00:00'})];
+    expect(createUnifiedBomMatcher(rows,true)('CODE')).toMatchObject({status:'HAS_BOM',approvalDate:'2026-11-03 12:00:00',bomSources:'E10、科加智能'});
     expect(simulateBomSource(rows)).toMatchObject({latestSource:'tplus-kejia',reason:'CANDIDATE_ONLY'});
-    expect(createUnifiedBomMatcher([...rows,head('tplus-kejia','3')],true)('CODE').approvalDate).toBeNull();
+    expect(createUnifiedBomMatcher([...rows,head('tplus-kejia','3')],true)('CODE').approvalDate).toBe('2026-11-03 12:00:00');
     expect(simulateBomSource([...rows,head('tplus-kejia','3')])).toMatchObject({latestSource:null,reason:'MULTIPLE_VERSIONS'});
   });
   it('keeps Y from last known effective sources while recording incomplete verification independently',()=>{

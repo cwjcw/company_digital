@@ -22,10 +22,12 @@ export function createUnifiedBomMatcher(heads: UnifiedBomHead[], verified: boole
       const times=found.filter(h=>h.source===source).map(h=>h.modifiedAt).filter((t):t is string=>!!t).sort();
       return `${BOM_SOURCE_NAMES[source]}：${times.at(-1)?.slice(0,10) ?? '未知'}`;
     }).join('；');
-    return { status, approvalDate: found.length===1 ? reliableApprovalDate(found[0].auditedAt) : null,
+    const approvalDates = found.map(head=>reliableApprovalDate(head.auditedAt)).filter((value):value is string=>value!==null);
+    const latestApprovalDate = approvalDates.sort((a,b)=>Date.parse(b)-Date.parse(a))[0] ?? null;
+    return { status, approvalDate: latestApprovalDate,
       bomSources:sources.map(source=>BOM_SOURCE_NAMES[source]).join('、'), sourceModifiedTimes:candidateTimes,
       bomVerified:verified,
-      bomSourceNote:ambiguous ? '存在多来源或多个有效版本，未确定唯一BOM；审核日期及等待天数留空。候选更新时间仅供参考。'
+      bomSourceNote:ambiguous ? '存在多来源或多个有效版本；审核日期采用有效BOM头中最新的可靠审核时间。候选更新时间仅供参考。'
         : found.length ? '来源候选更新时间仅供参考，不代表最终来源仲裁。'
         : verified ? '三来源当前成功快照内未匹配有效BOM。' : '来源异常、过期或尚未核验；N不代表三来源均已确认无BOM。' };
   };
