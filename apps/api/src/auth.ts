@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
 import { AdministratorGrant, ApiKey, AuditLog, OrganizationUnit, PasswordResetRequest, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
-import { administrableModuleRegistry, tablePermissionFieldsFor, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
+import { administrableModuleRegistry, presetPermissionGroupTypes, presetTablePermissionMatrix, rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, tablePermissionFieldsFor, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { MailService } from "./mail.service";
 
@@ -97,6 +97,27 @@ export class AuthService {
     const hasFullDataScope = isSystemAdmin || isGroupAdmin;
     const moduleAdminResources = tableResourceRegistry.filter((resource) => moduleAdminCodes.includes(resource.moduleCode));
     const moduleAdminPermissions = moduleAdminResources.flatMap((resource) => tablePermissionActions.map((action) => `${resource.code}:*:${action}`));
+    // Preset permission groups represent a fixed policy, not a frozen copy of
+    // the field catalog at the time the group was created. Derive field-level
+    // grants from the current registry so newly added/changed fields follow
+    // the preset automatically. Custom groups remain explicitly configured.
+    const presetFieldPermissions = effectivePermissionGroups.flatMap((role) => {
+      const resource = role.permissionGroupResource;
+      const groupType = role.permissionGroupType;
+      if (!resource || !presetPermissionGroupTypes.includes(groupType as typeof presetPermissionGroupTypes[number])) return [];
+      const matrix = presetTablePermissionMatrix[groupType as typeof presetPermissionGroupTypes[number]];
+      const operation = permissions.find((permission) => permission.roleId === role.id && permission.resource === resource && permission.fieldKey === "*");
+      if (!matrix.read || !operation?.read) return [];
+      const bomReportFields: ReadonlySet<string> | null = resource === "rd-order-bom-report"
+        ? new Set([...rdOrderBomDetailColumns, ...rdOrderBomOrderColumns, ...rdOrderBomDivisionColumns].map(([key]) => key))
+        : null;
+      return tablePermissionFieldsFor(resource as Parameters<typeof tablePermissionFieldsFor>[0])
+        .filter((field) => !bomReportFields || bomReportFields.has(field.key))
+        .flatMap((field) => [
+          `${resource}:${field.key}:read`,
+          ...(matrix.update && operation.update && field.editable ? [`${resource}:${field.key}:update`] : [])
+        ]);
+    });
     const moduleAdminTableScopes = moduleAdminResources.map((resource) => ({
       resource: resource.code, groupId: `module-admin:${resource.moduleCode}`, scope: "ALL", match: "ALL", rules: [], actions: [...tablePermissionActions]
     }));
@@ -122,6 +143,7 @@ export class AuthService {
             .filter((action) => permission[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission] && (permission.fieldKey === "*" || !tableResourceRegistry.some(resource => resource.code === permission.resource) || (tablePermissionFieldsFor(permission.resource as Parameters<typeof tablePermissionFieldsFor>[0]).some(field => field.key === permission.fieldKey && (action !== "update" || (field.editable && permission.read))))))
             .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
         ),
+        ...presetFieldPermissions,
         ...moduleAdminPermissions
       ])],
       mustChangePassword: user.mustChangePassword
