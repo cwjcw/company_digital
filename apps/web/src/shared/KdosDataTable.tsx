@@ -63,6 +63,7 @@ export function hasFieldPermission(resource: string, field: string, action: "rea
 }
 
 const pendingProcessReportDerivedFields = new Set(["cumulativeReportedQuantity", "remainingQuantity"]);
+const newRdOrderBomSummaryFields = new Set(["initialBomCompletionRate"]);
 
 /**
  * 工序报工待报工视图的两个汇总字段由 API 按资源 read 权限裁剪，不配置独立字段权限。
@@ -707,6 +708,12 @@ export function KdosDataTable<RecordType extends DataRecord>({
        * an explicit user hide and remains hidden. This only adds the two PENDING derived fields.
        */
       for (const key of pendingProcessReportDerivedFields) {
+        if (allowed.has(key) && !savedOrdered.includes(key) && !savedVisible.includes(key)) visible.push(key);
+      }
+    }
+    if (resource === "rd-order-bom-report" && viewKey === "rd-bom-orders" && savedVisible) {
+      /* Newly added summary metrics join existing layouts unless the user explicitly saved them hidden. */
+      for (const key of newRdOrderBomSummaryFields) {
         if (allowed.has(key) && !savedOrdered.includes(key) && !savedVisible.includes(key)) visible.push(key);
       }
     }
