@@ -17,7 +17,8 @@ export const rdOrderBomOrderColumns = [
   ["divisionId", "承接事业部"], ["orderNumber", "订单号"], ["orderDate", "下单日期"],
   ["itemCount", "品号总数"], ["existingBomItemCount", "有BOM品号数"],
   ["missingBomItemCount", "无BOM品号数"], ["unmatchedBomItemCount", "未核验品号数"],
-  ["completionRate", "BOM完成率"], ["orderBomStatus", "订单BOM完成情况"], ["sourceSyncStatus", "同步状态"]
+  ["completionRate", "BOM完成率"], ["initialBomCompletionRate", "下单时BOM完成率"],
+  ["orderBomStatus", "订单BOM完成情况"], ["sourceSyncStatus", "同步状态"]
 ] as const;
 
 export const rdOrderBomDivisionColumns = [
@@ -50,6 +51,7 @@ export const rdOrderBomReportFields: TablePermissionFieldDefinition[] = [
   { key: "missingBomItemCount", label: "无BOM品号数量", type: "number", editable: false },
   { key: "unmatchedBomItemCount", label: "未核验数量", type: "number", editable: false },
   { key: "completionRate", label: "BOM完成率", type: "number", editable: false },
+  { key: "initialBomCompletionRate", label: "下单时BOM完成率", type: "number", editable: false, format: "percentage", percentageScale: "percent" },
   { key: "orderBomStatus", label: "订单BOM状态", type: "text", editable: false },
   { key: "orderCount", label: "订单数量", type: "number", editable: false },
   { key: "averageBomWaitingDays", label: "平均BOM等待天数", type: "number", editable: false }

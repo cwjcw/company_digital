@@ -20,12 +20,13 @@ const orderKeys: string[] = rdOrderBomOrderColumns.map(([key])=>key);
 const divisionKeys: string[] = rdOrderBomDivisionColumns.map(([key])=>key);
 const labels: Record<string,string> = { ...Object.fromEntries([...rdOrderBomDetailColumns,...rdOrderBomOrderColumns,...rdOrderBomDivisionColumns]), divisionId:'承接事业部',orderNumber:'订单号',itemCode:'品号',itemName:'品名',orderDate:'下单日期',customerDueDate:'客户交期',bomStatus:'BOM状态',bomApprovalDate:'BOM审核日期',bomWaitingDays:'BOM等待天数',currentWaitingDays:'当前等待天数',itemCount:'品号总数',existingBomItemCount:'有BOM品号数',missingBomItemCount:'无BOM品号数',unmatchedBomItemCount:'未核验品号数',completionRate:'BOM完成率',orderBomStatus:'订单BOM完成情况',orderCount:'订单数量',averageBomWaitingDays:'平均BOM等待天数' };
 const dateKeys = new Set(['allocationDate','orderDate','customerDueDate','bomApprovalDate']);
-const numberKeys = new Set(['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderCount','averageBomWaitingDays']);
+const numberKeys = new Set(['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','initialBomCompletionRate','orderCount','averageBomWaitingDays']);
+const percentKeys = new Set(['completionRate','initialBomCompletionRate']);
 function columns(view: View): KdosDataColumn<ReportRow>[] {
   const keys = view === 'detail' ? detailKeys : view === 'orders' ? orderKeys : divisionKeys;
   return keys.map(key => ({ key, dataIndex: key, title: labels[key], align: 'center' as const, width: key === 'orderNumber' ? 160 : key === 'itemName' ? 200 : 135,
     ...(dateKeys.has(key) ? { render: (value: unknown) => formatRdBomDate(value) } : {}),
-    ...(numberKeys.has(key) ? { render: (value: unknown) => value == null || value === '' ? '—' : key === 'completionRate' ? `${value}%` : value } : {}),
+    ...(numberKeys.has(key) ? { render: (value: unknown) => value == null || value === '' ? '—' : percentKeys.has(key) ? `${value}%` : value } : {}),
     ...(key === 'bomStatus' || key === 'initialBomStatus' ? { render: (_value: unknown, row: ReportRow) => {
       const value = row[key];
       if (key==='initialBomStatus' && value==null) return '';

@@ -31,6 +31,12 @@ Application Command消费pending：复用MasterPlanSyncService现有60秒检查�
 
 来源候选更新时间sourceModifiedTimes、同步状态sourceSyncStatus、来源说明bomSourceNote、当前等待天数currentWaitingDays从明细列/候选/筛选/排序/导出/打印目录移除；后台计算/源字段/冲突分析不删。两汇总保留sourceSyncStatus列。旧个人DISPLAY/PRINT配置按现行字段裁剪，非法过滤/排序字段返回400，不产生列或白屏。
 
+## 订单BOM汇总新增字段（2026-11-26）
+
+|中文/英文key|所属表与关联/更新触发|类型/属性/默认/公式|权限/可见/提示/空值|
+|---|---|---|---|
+|下单时BOM完成率 initialBomCompletionRate|订单BOM汇总视图；按既有事业部+订单号分组，组内品项按品号去重；来源为各明细initialBomStatus，无独立持久化或刷新触发|数字百分比，只读，精度2位小数；`初始Y去重品项数 / (初始Y去重品项数 + 初始N去重品项数) × 100`；只统计状态严格为Y/N的记录，NULL/空值不参与，避免将历史无可靠初始状态当作N；分母为0时返回NULL而非0%|read字段权限；仅订单BOM汇总可见，放在现有BOM完成率之后；服务端筛选/排序、Excel导出和打印沿用该视图字段权限；无人工编辑、默认、脱敏、必填、唯一或跨表写入；NULL显示为横线/空白|
+
 ## 状态机与历史
 
 新单首次有效Y：initial=Y，锁0，记录真实检查完成时间/上海完成日期；首次N：initial=N，等待动态增长。初始采集异常保持空、pending起点与last_attempt/原因，恢复时记录真实检查时间和delay秒，不伪造分配时状态。initial一旦写入数据库守卫禁止覆盖。

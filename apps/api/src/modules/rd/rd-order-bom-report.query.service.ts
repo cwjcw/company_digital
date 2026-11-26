@@ -46,7 +46,7 @@ function valuesOf(rule: any): unknown[] { return Array.isArray(rule.values) ? ru
 function testRule(row: ReportRow, rule: any): boolean {
   const key = String(rule.field ?? ''), value = row[key], operator = String(rule.operator ?? '').toLowerCase();
   const empty = value == null || value === '';
-  const numeric = ['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','orderCount','averageBomWaitingDays'].includes(key);
+  const numeric = ['bomWaitingDays','currentWaitingDays','itemCount','unmatchedBomItemCount','existingBomItemCount','missingBomItemCount','completionRate','initialBomCompletionRate','orderCount','averageBomWaitingDays'].includes(key);
   const compare = (left: unknown, right: unknown) => numeric ? Number(left) - Number(right) : (dateKeys.has(key) ? String(left ?? '').slice(0,10) : String(left ?? '')).localeCompare(dateKeys.has(key) ? String(right ?? '').slice(0,10) : String(right ?? ''));
   if (operator === 'is_empty') return empty;
   if (operator === 'is_not_empty') return !empty;
@@ -299,12 +299,16 @@ export class RdOrderBomReportQueryService {
       for (const row of entries) unique.set(String(row.itemCode), row);
       const items = [...unique.values()], existing = items.filter(row => (row.bomStatus === 'Y' || row.bomStatus === 'HAS_BOM')).length;
       const noBom = items.filter(row => (row.bomStatus === 'N' || row.bomStatus === 'NO_BOM')).length;
+      const initiallyExisting = items.filter(row => row.initialBomStatus === 'Y').length;
+      const initiallyNoBom = items.filter(row => row.initialBomStatus === 'N').length;
       const unmatched = items.filter(row => (row.bomStatus == null || (row.bomStatus==='N' && row.bomVerified===false))).length;
       const states = items.map(row => ({ bomStatus: row.bomStatus ?? null }));
       const orderDates = [...new Set(entries.map(row => row.orderDate).filter((value): value is string => typeof value === 'string'))];
       return { id: stableId(`${entries[0].tenantId}\u001f${key}`), divisionId: entries[0].divisionId, divisionName: entries[0].divisionName, orderNumber: entries[0].orderNumber,
         sourceSyncStatus:entries[0].sourceSyncStatus, orderDate: orderDates.length === 1 ? orderDates[0] : null, itemCount: items.length, existingBomItemCount: existing, missingBomItemCount: noBom, unmatchedBomItemCount: unmatched,
-        completionRate: existing + noBom ? Number((existing / (existing + noBom) * 100).toFixed(2)) : null, orderBomStatus: orderBomStatus(states) };
+        completionRate: existing + noBom ? Number((existing / (existing + noBom) * 100).toFixed(2)) : null,
+        initialBomCompletionRate: initiallyExisting + initiallyNoBom ? Number((initiallyExisting / (initiallyExisting + initiallyNoBom) * 100).toFixed(2)) : null,
+        orderBomStatus: orderBomStatus(states) };
     });
   }
   private aggregateDivisions(details: ReportRow[]): ReportRow[] {
