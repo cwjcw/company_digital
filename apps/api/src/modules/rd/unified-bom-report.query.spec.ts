@@ -2,6 +2,7 @@ import { RdOrderBomReportQueryService } from './rd-order-bom-report.query.servic
 import { createUnifiedBomMatcher, type UnifiedBomHead } from './unified-bom.matcher';
 import { TablePrintService } from '../../common/printing/table-print.service';
 import ExcelJS from 'exceljs';
+import { rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns } from '@kdos/contracts';
 
 describe('Three-source existing report views',()=>{
  const heads:UnifiedBomHead[]=[
@@ -20,7 +21,7 @@ describe('Three-source existing report views',()=>{
  it('uses local exact-code snapshots for T+ only, with Y/N and no live E10 prerequisite',async()=>{
   const result=await list('detail');expect(result.total).toBe(4);
   expect(result.rows[0]).toMatchObject({itemCode:'TPLUS-ONLY',bomStatus:'Y',bomSources:'科加智能',bomWaitingDays:1});
-  expect(result.rows[2]).toMatchObject({itemCode:'MULTI',bomStatus:'Y',bomSources:'E10、凯南智能',bomApprovalDate:'2026-11-05 12:00:00',bomWaitingDays:null});
+  expect(result.rows[2]).toMatchObject({itemCode:'MULTI',bomStatus:'Y',bomSources:'E10、凯南智能',bomApprovalDate:'2026-11-05 00:00:00',bomWaitingDays:null});
   expect(result.rows[3]).toMatchObject({bomStatus:'N'});expect(e10.read).not.toHaveBeenCalled();
  });
  it('deduplicates both sources and duplicate allocations consistently across all views',async()=>{
@@ -68,6 +69,20 @@ describe('Three-source existing report views',()=>{
   expect(sheet.rowCount).toBe(5);expect(sheet.getCell('A2').text).toBe('部门');
   expect(sheet.getCell('C2').text).toBe('Y');expect(sheet.getCell('C5').text).toBe('N');
   expect(sheet.getCell('D2').text).toBe('科加智能');
+ });
+ it('exports each report tab with only that view’s registered columns',async()=>{
+  const exports=new TablePrintService({has:()=>true,get:()=>source} as never,db);
+  const views=[
+   ['detail',rdOrderBomDetailColumns],['orders',rdOrderBomOrderColumns],['divisions',rdOrderBomDivisionColumns]
+  ] as const;
+  for(const [view,contract] of views){
+   const expectedKeys=contract.map(([key])=>key);
+   expect(source.exportVariant({view}).fields.map((field:any)=>field.key)).toEqual(expectedKeys);
+   const buffer=await exports.exportXlsx('rd-order-bom-report',{context:{view},rangeType:'FILTERED'},actor);
+   const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer as never);
+   const headers=workbook.worksheets[0]!.getRow(1).values as unknown[];
+   expect(headers.slice(1)).toEqual(contract.map(([,label])=>label));
+  }
  });
  it('returns typed candidates from all authorized computed rows with current filters and stable department ids',async()=>{
   expect(await source.candidateValues({actor,context:{view:'detail'},tableSearch:'',search:'科加',limit:50,fieldKey:'bomSources',filterGroup:{logic:'AND',rules:[{field:'bomStatus',operator:'eq',value:'Y'}]}})).toEqual({options:[{value:'科加智能',label:'科加智能'}],hasMore:false});

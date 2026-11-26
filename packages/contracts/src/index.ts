@@ -67,6 +67,17 @@ export const presetTablePermissionMatrix: Record<PresetPermissionGroupType, Read
   VIEW_ALL:       { read: true,  create: false, copy: false, update: false, delete: false, batch_print: true,  batch_update: false, import: false, export: false }
 };
 
+/**
+ * Formal dashboard/report tables may opt eligible preset groups into the shared
+ * server-side export action without enabling exports globally for every table.
+ * Export still requires resource read permission and is enforced by the API.
+ */
+export function presetTableActionAllowed(resource: string, groupType: PresetPermissionGroupType, action: TablePermissionAction) {
+  const matrix = presetTablePermissionMatrix[groupType];
+  if (matrix[action]) return true;
+  return resource === "rd-order-bom-report" && action === "export" && matrix.read;
+}
+
 export const presetTablePermissionDataScope: Record<PresetPermissionGroupType, "NONE" | "OWN" | "ALL"> = {
   ADD_ONLY: "NONE", ADD_MANAGE_OWN: "OWN", ADD_VIEW_ALL: "ALL", MANAGE_ALL: "ALL", VIEW_ALL: "ALL"
 };

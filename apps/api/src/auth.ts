@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { Repository } from "typeorm";
 import { AdministratorGrant, ApiKey, AuditLog, OrganizationUnit, PasswordResetRequest, Permission, PermissionGroupSubject, RefreshToken, Role, RoleDataScope, RoleOrganizationScope, User, UserRole } from "./entities";
-import { administrableModuleRegistry, presetPermissionGroupTypes, presetTablePermissionMatrix, rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, tablePermissionFieldsFor, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
+import { administrableModuleRegistry, presetPermissionGroupTypes, presetTableActionAllowed, presetTablePermissionMatrix, rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, tablePermissionFieldsFor, tablePermissionActions, tableResourceRegistry } from "@kdos/contracts";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import { MailService } from "./mail.service";
 
@@ -116,7 +116,18 @@ export class AuthService {
         .flatMap((field) => [
           `${resource}:${field.key}:read`,
           ...(matrix.update && operation.update && field.editable ? [`${resource}:${field.key}:update`] : [])
-        ]);
+      ]);
+    });
+    // The BOM report is read-only and follows the platform's shared export flow.
+    // Existing preset groups predate this capability, so derive its narrow
+    // resource-specific export grant while preserving their stored read grant.
+    const presetResourceOperationPermissions = effectivePermissionGroups.flatMap((role) => {
+      const resource = role.permissionGroupResource;
+      const groupType = role.permissionGroupType;
+      if (!resource || !presetPermissionGroupTypes.includes(groupType as typeof presetPermissionGroupTypes[number])) return [];
+      const typedGroup = groupType as typeof presetPermissionGroupTypes[number];
+      const operation = permissions.find((permission) => permission.roleId === role.id && permission.resource === resource && permission.fieldKey === "*");
+      return operation?.read && presetTableActionAllowed(resource, typedGroup, "export") ? [`${resource}:*:export`] : [];
     });
     const moduleAdminTableScopes = moduleAdminResources.map((resource) => ({
       resource: resource.code, groupId: `module-admin:${resource.moduleCode}`, scope: "ALL", match: "ALL", rules: [], actions: [...tablePermissionActions]
@@ -133,6 +144,8 @@ export class AuthService {
         const operation = permissions.find((permission) => permission.roleId === role.id && permission.fieldKey === "*");
         const actions = operation ? ["read", "create", "copy", "update", "delete", "batch_print", "batch_update", "import", "export"]
           .filter((action) => Boolean(operation[action === "batch_print" ? "batchPrint" : action === "batch_update" ? "batchUpdate" : action as keyof Permission])) : [];
+        if (operation?.read && role.permissionGroupResource && presetPermissionGroupTypes.includes(role.permissionGroupType as typeof presetPermissionGroupTypes[number])
+          && presetTableActionAllowed(role.permissionGroupResource, role.permissionGroupType as typeof presetPermissionGroupTypes[number], "export") && !actions.includes("export")) actions.push("export");
         return { resource: role.permissionGroupResource, groupId: role.id, scope: role.permissionGroupScope, match: role.permissionGroupConditionMatch, rules: role.permissionGroupDataRules, actions };
       }), ...moduleAdminTableScopes],
       managedOrganizationUnitIds: [...managedOrganizationUnitIds],
@@ -144,6 +157,7 @@ export class AuthService {
             .map((action) => `${permission.resource}:${permission.fieldKey}:${action}`)
         ),
         ...presetFieldPermissions,
+        ...presetResourceOperationPermissions,
         ...moduleAdminPermissions
       ])],
       mustChangePassword: user.mustChangePassword

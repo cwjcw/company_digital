@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, rdOrderBomReportResource, tableFilterResourceCapabilities, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry } from './index';
+import { presetTableActionAllowed, rdOrderBomDetailColumns, rdOrderBomDivisionColumns, rdOrderBomOrderColumns, rdOrderBomReportResource, tableFilterResourceCapabilities, tablePermissionFieldsFor, tablePrintResourceCapabilityOf, tableResourceRegistry } from './index';
 
 describe('R&D order BOM report contract', () => {
   it('registers one read-only R&D resource with shared filtering and export/print support', () => {
@@ -8,11 +8,17 @@ describe('R&D order BOM report contract', () => {
     expect(tablePrintResourceCapabilityOf(rdOrderBomReportResource).status).toBe('PRINTABLE');
     expect(tablePermissionFieldsFor(rdOrderBomReportResource).some(field => field.editable)).toBe(false);
   });
+  it('grants shared export defaults to readable preset groups only for this report', () => {
+    expect(presetTableActionAllowed(rdOrderBomReportResource, 'VIEW_ALL', 'export')).toBe(true);
+    expect(presetTableActionAllowed(rdOrderBomReportResource, 'ADD_VIEW_ALL', 'export')).toBe(true);
+    expect(presetTableActionAllowed(rdOrderBomReportResource, 'ADD_ONLY', 'export')).toBe(false);
+    expect(presetTableActionAllowed('mps-process-reports', 'VIEW_ALL', 'export')).toBe(false);
+  });
   it('keeps twelve detail columns and separate summary contracts with allocation due date', () => {
     expect(rdOrderBomDetailColumns.map(column => column[0])).toEqual(['divisionId','orderNumber','itemCode','itemName','orderDate','allocationDate','customerDueDate','initialBomStatus','bomStatus','bomSources','bomApprovalDate','bomWaitingDays']);
     const detailKeys=rdOrderBomDetailColumns.map(([key])=>key);
     expect(tablePermissionFieldsFor(rdOrderBomReportResource).filter(field=>detailKeys.includes(field.key as typeof detailKeys[number])).map(field=>field.key)).toEqual(detailKeys);
-    expect(rdOrderBomOrderColumns.map(column => column[0])).toHaveLength(10);
+    expect(rdOrderBomOrderColumns.map(column => column[0])).toHaveLength(11);
     expect(rdOrderBomDivisionColumns.map(column => column[0])).toHaveLength(9);
     expect(tablePermissionFieldsFor('mps-order-allocations').map(field => field.key)).not.toContain('customerDueDate');
     expect(tablePermissionFieldsFor(rdOrderBomReportResource).map(field => field.key)).toContain('customerDueDate');

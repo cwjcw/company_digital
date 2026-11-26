@@ -12,7 +12,7 @@ function queryBuilder(result: unknown[]) {
 }
 
 describe("AuthService dynamic organization roles", () => {
-  function setup(enabled = true, administratorGrant: { systemAdmin: boolean; moduleCodes: string[] } | null = null) {
+  function setup(enabled = true, administratorGrant: { systemAdmin: boolean; moduleCodes: string[] } | null = null, presetGroup?: Record<string, any>) {
     const user = {
       id: "user-1", username: "member", displayName: "部门成员", enabled,
       departmentPaths: [["凯南", "营销中心", "业务部"]], division: null, mustChangePassword: false
@@ -20,13 +20,13 @@ describe("AuthService dynamic organization roles", () => {
     const users = { findOneBy: jest.fn().mockResolvedValue(user) };
     const userRoles = { findBy: jest.fn().mockResolvedValue([]) };
     const roleQuery = jest.fn()
-      .mockReturnValueOnce(queryBuilder([]))
+      .mockReturnValueOnce(queryBuilder(presetGroup ? [presetGroup] : []))
       .mockReturnValueOnce(queryBuilder([{ id: "role-organization", name: "营销角色" }]));
     const roles = { createQueryBuilder: roleQuery };
-    const permissions = { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder([{ resource: "orders", fieldKey: "*", read: true }])) };
+    const permissions = { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder(presetGroup ? [{ roleId: presetGroup.id, resource: presetGroup.permissionGroupResource, fieldKey: "*", read: true, export: false }] : [{ resource: "orders", fieldKey: "*", read: true }])) };
     const scopes = { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder([])) };
     const organizationScopes = { find: jest.fn().mockResolvedValue([{ roleId: "role-organization", organizationUnitId: "marketing" }]) };
-    const permissionGroupSubjects = { find: jest.fn().mockResolvedValue([]) };
+    const permissionGroupSubjects = { find: jest.fn().mockResolvedValue(presetGroup ? [{ roleId: presetGroup.id, subjectType: "USER", subjectId: "user-1" }] : []) };
     const organizationUnits = { find: jest.fn().mockResolvedValue([
       { id: "company", name: "凯南", parentId: null },
       { id: "marketing", name: "营销中心", parentId: "company" },
@@ -65,6 +65,14 @@ describe("AuthService dynamic organization roles", () => {
     expect(claims.permissions).toContain('mps-base-plans:deliveryNumber:read');
     expect(claims.permissions).not.toContain('mps-base-plans:deliveryNumber:update');
     expect(claims.permissions).toContain('mps-base-plans:plannedQuantity:update');
+  });
+
+  it("derives read-only BOM report export for existing VIEW_ALL preset groups", async () => {
+    const group = { id: "bom-view-all", permissionGroupResource: "rd-order-bom-report", permissionGroupType: "VIEW_ALL", permissionGroupScope: "ALL", permissionGroupConditionMatch: "ALL", permissionGroupDataRules: [] };
+    const claims = await setup(true, null, group).service.claimsForEnabledUser("user-1");
+    expect(claims.permissions).toContain("rd-order-bom-report:*:read");
+    expect(claims.permissions).toContain("rd-order-bom-report:*:export");
+    expect(claims.tableDataScopes).toEqual(expect.arrayContaining([expect.objectContaining({ resource: "rd-order-bom-report", scope: "ALL", actions: expect.arrayContaining(["read", "export"]) })]));
   });
 
   it("rejects a departed or disabled user before reusing token claims", async () => {

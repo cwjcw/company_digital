@@ -73,8 +73,11 @@ function testGroup(row: ReportRow, group: ParsedFilterGroup): boolean {
   return !tests.length || (group.logic === 'OR' ? tests.some(Boolean) : tests.every(Boolean));
 }
 function viewFields(view: keyof typeof viewColumns) {
-  const names = new Set(viewColumns[view].map(([key]) => key));
-  return rdOrderBomReportFields.filter(field => names.has(field.key as never));
+  return viewColumns[view].map(([key, label]) => {
+    const field = rdOrderBomReportFields.find(candidate => candidate.key === key);
+    if (!field) throw new Error(`订单BOM报表视图字段未登记：${key}`);
+    return { ...field, label };
+  });
 }
 function readable(actor: TableFilterActor, key: string) {
   if (actor.hasFieldPermission) return actor.hasFieldPermission(rdOrderBomReportResource, key, 'read');

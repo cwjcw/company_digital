@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { DataSource, EntityManager, In, IsNull, Not } from "typeorm";
 import {
-  presetPermissionGroupTypes, presetTablePermissionDataScope, presetTablePermissionMatrix,
+  presetPermissionGroupTypes, presetTableActionAllowed, presetTablePermissionDataScope,
   tablePermissionActions, tablePermissionFieldsFor, tableResourceRegistry, mpsReportContextProjectionFieldKeys,
   type PresetPermissionGroupType, type TablePermissionAction, type TableResourceCode
 } from "@kdos/contracts";
@@ -69,7 +69,7 @@ export class TablePermissionGroupApplicationService {
   private actions(input: TablePermissionGroupInput): TablePermissionAction[] {
     if (input.groupType !== "CUSTOM") {
       const presetType: PresetPermissionGroupType = input.groupType;
-      return tablePermissionActions.filter((action) => presetTablePermissionMatrix[presetType][action]);
+      return tablePermissionActions.filter((action) => presetTableActionAllowed(input.resource, presetType, action));
     }
     const values = [...new Set(input.actions ?? [])].filter((action): action is TablePermissionAction => tablePermissionActions.includes(action));
     if (!values.length) throw new BadRequestException("至少选择一个操作权限");

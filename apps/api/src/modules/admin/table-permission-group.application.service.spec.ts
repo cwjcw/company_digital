@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { mpsReportContextProjectionFieldKeys, presetPermissionGroupTypes, presetTablePermissionMatrix, tablePermissionActions } from "@kdos/contracts";
+import { mpsReportContextProjectionFieldKeys, presetPermissionGroupTypes, presetTableActionAllowed, presetTablePermissionMatrix, tablePermissionActions } from "@kdos/contracts";
 import { AuditLog, Permission, PermissionGroupSubject, Role } from "../../entities";
 import { TablePermissionGroupApplicationService } from "./table-permission-group.application.service";
 
@@ -8,7 +8,7 @@ describe("TablePermissionGroupApplicationService", () => {
 
   it("uses the immutable server preset matrix", () => {
     for (const groupType of presetPermissionGroupTypes) {
-      expect(service.actions({ groupType })).toEqual(tablePermissionActions.filter((action) => presetTablePermissionMatrix[groupType][action]));
+      expect(service.actions({ resource: "mps-process-reports", groupType })).toEqual(tablePermissionActions.filter((action) => presetTableActionAllowed("mps-process-reports", groupType, action)));
     }
     expect(presetTablePermissionMatrix).toMatchObject({
       ADD_ONLY: { import: true, export: false },
@@ -17,6 +17,14 @@ describe("TablePermissionGroupApplicationService", () => {
       MANAGE_ALL: { import: true, export: true },
       VIEW_ALL: { import: false, export: false }
     });
+  });
+
+  it("enables shared export only for readable preset groups on the BOM report", () => {
+    for (const groupType of presetPermissionGroupTypes) {
+      const actions = service.actions({ resource: "rd-order-bom-report", groupType });
+      expect(actions.includes("export")).toBe(presetTablePermissionMatrix[groupType].export || presetTablePermissionMatrix[groupType].read);
+    }
+    expect(service.actions({ resource: "mps-process-reports", groupType: "VIEW_ALL" })).not.toContain("export");
   });
 
   it("requires read whenever custom permissions manage existing rows", () => {

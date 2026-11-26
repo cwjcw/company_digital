@@ -45,7 +45,7 @@ N→Y锁上海确认日期-原始分配日，保存first_completed_at/date/days�
 
 ## 公共表格与统计
 
-复用KdosDataTable、现有高级筛选/候选服务、字段排序/个人列宽/显示/PRINT偏好、服务端全匹配Excel。initial支持Y/N/is_empty；allocationDate日期筛选排序；日期和表头/数据全部居中。明细精确12业务列；保留系统列规范，无新管理页。来源异常保留原机制但无新增消息。
+复用KdosDataTable、现有高级筛选/候选服务、字段排序/个人列宽/显示/PRINT偏好、服务端全匹配Excel。明细、订单汇总、事业部统计三个view均使用同一后端白名单resource的独立表内导出，导出上下文必须带view，并继承当前搜索、高级筛选、列筛选、排序、tenant、数据范围及字段read权限；授权判定为同resource的read∩export，后端再次校验。只读VIEW_ALL/ADD_VIEW_ALL预置组对本报表允许export，不改变其它resource的预置权限；无export仍隐藏按钮且API返回403。initial支持Y/N/is_empty；allocationDate日期筛选排序；日期和表头/数据全部居中。明细精确12业务列；保留系统列规范，无新管理页。来源异常保留原机制但无新增消息。
 
 两汇总字段布局不变，去重仍按原订单/品号/事业部。平均仅当前Y且bomWaitingDays非NULL参与，禁止NULL→0，使用同一detail状态/锁值，不重复ERP计数。
 

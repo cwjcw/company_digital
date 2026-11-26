@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createOrganizationMembershipIndex } from "@kdos/permissions";
 import {
-  presetPermissionGroupTypes, presetTablePermissionMatrix, tablePermissionActionLabel, tablePermissionActions, tablePermissionFieldsFor,
+  presetPermissionGroupTypes, presetTableActionAllowed, tablePermissionActionLabel, tablePermissionActions, tablePermissionFieldsFor,
   tableResourceRegistry, type PresetPermissionGroupType, type TablePermissionAction,
   type TablePermissionFieldDefinition, type TableResourceCode
 } from "@kdos/contracts";
@@ -42,7 +42,7 @@ const presetLabel: Record<PresetPermissionGroupType, string> = {
 const scopeLabel: Record<string, string> = { NONE: "仅提交数据", OWN: "本人创建的数据", ALL: "全部数据", CUSTOM: "按筛选条件" };
 function safeReturnPath() { const value = new URLSearchParams(window.location.search).get("from"); return value?.startsWith("/") && !value.startsWith("/permissions/") ? value : "/"; }
 function actionsFromPermission(permission?: PermissionRecord) { return permission ? tablePermissionActions.filter((action) => Boolean(permission[actionField[action]])) : []; }
-function presetActions(type: PresetPermissionGroupType) { return tablePermissionActions.filter((action) => presetTablePermissionMatrix[type][action]); }
+function presetActions(resource: string, type: PresetPermissionGroupType) { return tablePermissionActions.filter((action) => presetTableActionAllowed(resource, type, action)); }
 function subjectKey(subject: Subject) { return `${subject.type}:${subject.id}`; }
 
 export function TablePermissionsPage({ resourceCode }: { resourceCode: string }) {
@@ -104,7 +104,7 @@ export function TablePermissionsPage({ resourceCode }: { resourceCode: string })
   const confirmSelector = () => { if (!subjects.length) return; setSelectorOpen(false); setEditorOpen(true); setSelectorFromEditor(false); };
   const cancelSelector = () => { setSelectorOpen(false); if (selectorFromEditor) setEditorOpen(true); else resetDraft(); setSelectorFromEditor(false); };
   const reopenSelector = () => { setEditorOpen(false); setSelectorFromEditor(true); setSelectorOpen(true); };
-  const selectPermission = (value: string) => { setPermissionChoice(value); if (presetPermissionGroupTypes.includes(value as PresetPermissionGroupType)) setCustomActions(presetActions(value as PresetPermissionGroupType)); if (value === "CUSTOM" && !Object.keys(customFields).length) setCustomFields(Object.fromEntries(fields.map((field) => [field.key, { visible: false, editable: false }]))); };
+  const selectPermission = (value: string) => { setPermissionChoice(value); if (presetPermissionGroupTypes.includes(value as PresetPermissionGroupType)) setCustomActions(presetActions(resourceCode, value as PresetPermissionGroupType)); if (value === "CUSTOM" && !Object.keys(customFields).length) setCustomFields(Object.fromEntries(fields.map((field) => [field.key, { visible: false, editable: false }]))); };
   const setAction = (action: TablePermissionAction, checked: boolean) => setCustomActions((current) => { let next = checked ? [...new Set([...current, action])] : current.filter((item) => item !== action); if (!checked && action === "read") next = next.filter((item) => !["copy", "update", "delete", "batch_update", "export"].includes(item)); if (checked && ["copy", "update", "delete", "batch_update", "export"].includes(action) && !next.includes("read")) next.push("read"); return next; });
   const setField = (field: TablePermissionFieldDefinition, key: "visible" | "editable", checked: boolean) => setCustomFields((current) => { const value = current[field.key] ?? { visible: false, editable: false }; return { ...current, [field.key]: key === "editable" ? { visible: checked || value.visible, editable: checked && field.editable } : { visible: checked, editable: checked && field.editable ? value.editable : false } }; });
   const setAllFields = (key: "visible" | "editable", checked: boolean) => setCustomFields((current) => Object.fromEntries(fields.map((field) => { const value = current[field.key] ?? { visible: false, editable: false }; return [field.key, key === "visible" ? { visible: checked, editable: checked && field.editable ? value.editable : false } : { visible: checked || value.visible, editable: checked && field.editable }]; })));
